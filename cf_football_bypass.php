@@ -122,6 +122,8 @@ final class CloudflareFootballBypass
             'cron_secret'         => $secret,
             'bypass_active'       => 0,
             'bypass_blocked_ips'  => [],
+            'bypass_check_cooldown' => 60,
+            'bypass_last_change'    => 0,
         ];
     }
     private function clear_logs_file(){
@@ -316,6 +318,13 @@ final class CloudflareFootballBypass
             $opt['cron_secret'] = $this->generate_cron_secret();
             $changed = true;
         }
+        $cooldown = isset($opt['bypass_check_cooldown']) ? intval($opt['bypass_check_cooldown']) : 60;
+        if ($cooldown < 5) $cooldown = 5;
+        if ($cooldown > 1440) $cooldown = 1440;
+        if (!isset($opt['bypass_check_cooldown']) || $cooldown !== intval($opt['bypass_check_cooldown'])) {
+            $opt['bypass_check_cooldown'] = $cooldown;
+            $changed = true;
+        }
         $opt['bypass_active'] = !empty($opt['bypass_active']) ? 1 : 0;
         if (!isset($opt['bypass_blocked_ips']) || !is_array($opt['bypass_blocked_ips'])) {
             $opt['bypass_blocked_ips'] = [];
@@ -330,6 +339,7 @@ final class CloudflareFootballBypass
                 $changed = true;
             }
         }
+        $opt['bypass_last_change'] = isset($opt['bypass_last_change']) ? intval($opt['bypass_last_change']) : 0;
         return [$opt,$changed];
     }
     private function get_settings(){
@@ -394,6 +404,7 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
 
         add_settings_section('cfb_plugin_section', __('Ajustes del plugin','cfb'), '__return_false', 'cfb_settings_page');
         add_settings_field('check_interval', __('Intervalo de comprobación (minutos)','cfb'), [$this,'check_interval_render'], 'cfb_settings_page', 'cfb_plugin_section');
+        add_settings_field('bypass_check_cooldown', __('Intervalo tras desactivar Cloudflare (min)','cfb'), [$this,'bypass_check_cooldown_render'], 'cfb_settings_page', 'cfb_plugin_section');
         add_settings_field('selected_records', __('Registros DNS a gestionar (se cargan en Operación)','cfb'), [$this,'selected_records_hint'], 'cfb_settings_page', 'cfb_plugin_section');
         add_settings_field('logging_enabled', __('Registro de acciones','cfb'), [$this,'logging_enabled_render'], 'cfb_settings_page', 'cfb_plugin_section');
         add_settings_field('log_retention_days', __('Retención de logs (días)','cfb'), [$this,'log_retention_render'], 'cfb_settings_page', 'cfb_plugin_section');
@@ -427,9 +438,11 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         $san['last_update']         = array_key_exists('last_update',$input)         ? $input['last_update']         : ($existing['last_update']         ?? '');
         $san['logging_enabled']     = isset($input['logging_enabled']) ? (int)!empty($input['logging_enabled']) : ($existing['logging_enabled'] ?? 1);
         $san['log_retention_days']  = isset($input['log_retention_days']) ? intval($input['log_retention_days']) : ($existing['log_retention_days'] ?? 30);
+        $san['bypass_check_cooldown'] = isset($input['bypass_check_cooldown']) ? intval($input['bypass_check_cooldown']) : ($existing['bypass_check_cooldown'] ?? 60);
         $san['cron_secret']         = isset($input['cron_secret']) ? sanitize_text_field($input['cron_secret']) : ($existing['cron_secret'] ?? '');
         $san['bypass_active']       = isset($input['bypass_active']) ? (int)!empty($input['bypass_active']) : ($existing['bypass_active'] ?? 0);
         $san['bypass_blocked_ips']  = array_key_exists('bypass_blocked_ips',$input) ? (array)$input['bypass_blocked_ips'] : ($existing['bypass_blocked_ips'] ?? []);
+        $san['bypass_last_change']  = isset($input['bypass_last_change']) ? intval($input['bypass_last_change']) : ($existing['bypass_last_change'] ?? 0);
         $reset_requested            = !empty($input['reset_settings']);
 
         // Normaliza estructuras
@@ -629,6 +642,13 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
     public function selected_records_hint(){
         echo '<p class="description">Marca los registros a gestionar en la pestaña <strong>Operación</strong> (usando el caché).</p>';
     }
+    public function bypass_check_cooldown_render(){
+        $s = $this->get_settings();
+        $val = isset($s['bypass_check_cooldown']) ? intval($s['bypass_check_cooldown']) : 60;
+        printf('<input type="number" min="5" max="1440" name="%1$s[bypass_check_cooldown]" value="%2$d" class="small-text" />',
+            esc_attr($this->option_name), $val);
+        echo '<p class="description">'.__('Minutos que deben pasar tras desactivar Cloudflare antes de volver a comprobar si puede reactivarse (5-1440).','cfb').'</p>';
+    }
     public function logging_enabled_render(){
         $s = $this->get_settings();
         $checked = !empty($s['logging_enabled']) ? 'checked' : '';
@@ -705,6 +725,7 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         echo 'Dominio: <strong>'.esc_html($domain).'</strong> — <a href="'.esc_url($check_url).'" target="_blank" rel="noopener">Abrir comprobador</a></p>';
 
         echo '<h2 class="title">Registros DNS en caché</h2>';
+        echo '<p class="description">Debes seleccionar los registros que debemos controlar y pulsar “Probar conexión y cargar DNS” para actualizar el listado.</p>';
         echo '<div id="cfb-dns-list">';
         if (empty($cache)) {
             echo '<p>No hay registros en caché. Pulsa “Probar conexión y cargar DNS”.</p>';
@@ -1140,14 +1161,34 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         $domain=$calc['domain'];
         $blocked_domain_ips = $calc['blocked_domain_ips'] ?? [];
         $stored_blocked = isset($settings['bypass_blocked_ips']) && is_array($settings['bypass_blocked_ips']) ? $settings['bypass_blocked_ips'] : [];
-        $now=current_time('mysql');
+        $now_mysql=current_time('mysql');
+        $now_ts=current_time('timestamp');
+        $prev_active=!empty($settings['bypass_active']);
+        $last_change = isset($settings['bypass_last_change']) ? intval($settings['bypass_last_change']) : 0;
+        $cooldown_minutes = isset($settings['bypass_check_cooldown']) ? intval($settings['bypass_check_cooldown']) : 60;
+        if ($cooldown_minutes < 5) $cooldown_minutes = 5;
+        if ($cooldown_minutes > 1440) $cooldown_minutes = 1440;
+        $cooldown_seconds = $cooldown_minutes * 60;
 
         $should_disable = ($domain==='SÍ');
-        if (!$should_disable && !empty($settings['bypass_active'])) {
-            if (!empty(array_intersect($stored_blocked, $blocked_domain_ips))) {
+        $reason = $should_disable ? 'domain_blocked' : 'domain_clear';
+        $cooldown_waiting = false;
+        $cooldown_remaining = 0;
+        $still_waiting_ips = [];
+
+        if (!$should_disable && $prev_active) {
+            $still_waiting_ips = array_intersect($stored_blocked, $blocked_domain_ips);
+            if (!empty($still_waiting_ips)) {
                 $should_disable = true;
+                $reason = 'waiting_previous_ips';
+            } elseif ($last_change && ($now_ts - $last_change) < $cooldown_seconds) {
+                $should_disable = true;
+                $reason = 'cooldown';
+                $cooldown_waiting = true;
+                $cooldown_remaining = $cooldown_seconds - ($now_ts - $last_change);
             }
         }
+
         $desiredProxied = !$should_disable; // dominio bloqueado => OFF, si no => ON
 
         $updated=0;
@@ -1162,19 +1203,25 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
                 }
             }
         }
-        $settings['last_check']=$now;
+
+        $settings['last_check']=$now_mysql;
         $settings['last_status_general']=($general==='SÍ')?'SI':'NO';
         $settings['last_status_domain']=($domain==='SÍ')?'SI':'NO';
         $settings['last_update']=$calc['last_update'] ?? $settings['last_update'];
+
         if ($should_disable) {
+            if (!$prev_active) { $settings['bypass_last_change']=$now_ts; }
             $settings['bypass_active']=1;
             $settings['bypass_blocked_ips']=!empty($blocked_domain_ips) ? $blocked_domain_ips : $stored_blocked;
         } else {
+            if ($prev_active) { $settings['bypass_last_change']=$now_ts; }
             $settings['bypass_active']=0;
             $settings['bypass_blocked_ips']=[];
         }
+
         $this->save_settings($settings);
         $this->log("Auto-check: general={$settings['last_status_general']} domain={$settings['last_status_domain']} updated=$updated");
+
         $changes = [];
         if (!empty($settings['selected_records'])){
             foreach ($settings['selected_records'] as $rid){
@@ -1186,15 +1233,33 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
             'general'=>$settings['last_status_general'],
             'domain'=>$settings['last_status_domain'],
             'registros_seleccionados'=>count($settings['selected_records'] ?? []),
+            'bypass_activo'=>$settings['bypass_active'],
+            'cooldown_minutos'=>$cooldown_minutes,
+            'motivo'=>$reason,
+            'bypass_ultima_modificacion'=>$settings['bypass_last_change'] ?? 0,
         ];
         if ($should_disable) {
-            $log_context['accion'] = ($domain==='SÍ') ? 'Proxy OFF (dominio bloqueado)' : 'Proxy OFF (esperando desbloqueo)';
+            if ($reason === 'domain_blocked') {
+                $log_context['accion'] = 'Proxy OFF (dominio bloqueado)';
+            } elseif ($reason === 'waiting_previous_ips') {
+                $log_context['accion'] = 'Proxy OFF (esperando desbloqueo de IPs anteriores)';
+            } elseif ($reason === 'cooldown') {
+                $log_context['accion'] = 'Proxy OFF (en periodo de enfriamiento)';
+            } else {
+                $log_context['accion'] = 'Proxy OFF';
+            }
         } else {
             $log_context['accion'] = 'Proxy ON (dominio sin bloqueo)';
         }
-        $log_context['bypass_activo'] = $settings['bypass_active'];
         if (!empty($settings['bypass_blocked_ips'])) {
             $log_context['ips_bloqueadas'] = $settings['bypass_blocked_ips'];
+        }
+        if ($cooldown_waiting && $cooldown_remaining > 0) {
+            $log_context['cooldown_restante_seg'] = $cooldown_remaining;
+            $log_context['cooldown_restante_min'] = max(1, ceil($cooldown_remaining/60));
+        }
+        if (!empty($still_waiting_ips)) {
+            $log_context['ips_pendientes'] = array_values($still_waiting_ips);
         }
         if ($updated>0) {
             $log_context['cambios']='Se aplicaron '.$updated.' cambios de proxy.';

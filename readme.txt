@@ -41,6 +41,7 @@ Soporte dual de autenticacion Cloudflare
 Control granular
 - Seleccion especifica de registros DNS (A y CNAME)
 - Duracion configurable del bypass (60-600 minutos)
+- Intervalo personalizable tras desactivar Cloudflare antes de reintentar activarlo
 - Control manual para casos especiales
 
 Dashboard informativo
@@ -70,6 +71,7 @@ Herramientas adicionales
 
 3. Configuracion del plugin
    - Establece el intervalo de comprobacion (recomendado: 15 minutos)
+   - Ajusta el intervalo tras desactivar Cloudflare (cooldown) si necesitas mas o menos tiempo (por defecto 60 minutos)
    - Define la duracion del bypass (recomendado: 120 minutos)
    - Haz clic en "Probar conexion y actualizar lista DNS"
    - Selecciona los registros DNS que quieres gestionar
@@ -131,6 +133,9 @@ Ve a Ajustes > CF Football Bypass y copia el token del apartado "Cron externo". 
 */15 * * * * curl -s "https://tudominio.com/wp-cron.php?cfb_cron=1&token=TOKEN_AQUI" > /dev/null 2>&1
 
 Puedes regenerar el token borrando el campo y guardando los ajustes (se genera uno nuevo). Este endpoint solo ejecuta la comprobacion del plugin, sin depender de visitas.
+
+= Que es el "Intervalo tras desactivar Cloudflare"? =
+Es el tiempo de espera (por defecto 60 minutos) que el plugin respeta antes de volver a revisar si puede activar Cloudflare tras haber detectado un bloqueo. Durante este periodo el proxy se mantiene en "DNS Only" aunque el JSON deje de marcar el dominio, evitando ciclos de activacion/desactivacion rapidos.
 
 = Como verifico que el cron funciona correctamente? =
 En la pestaña Operacion pulsa "Diagnostico WP-Cron" para ver proxima ejecucion y el resultado del ultimo check. Tambien puedes revisar los logs integrados.
