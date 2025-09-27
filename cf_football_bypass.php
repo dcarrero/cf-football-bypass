@@ -92,7 +92,41 @@ final class CloudflareFootballBypass
         foreach ($array as $k=>$v){ if (is_string($k) && strtolower($k)===$lk) return $v; }
         return null;
     }
-    private function handle_option_updated($option, $old, $new){
+    private function generate_cron_secret(){
+        if (function_exists('wp_generate_password')) {
+            return wp_generate_password(32, false, false);
+        }
+        try {
+            return bin2hex(random_bytes(16));
+        } catch (Exception $e) {
+            return md5(uniqid('', true));
+        }
+    }
+    private function get_default_settings($force_new_token=false){
+        $secret = $force_new_token ? $this->generate_cron_secret() : '';
+        return [
+            'cloudflare_email'    => '',
+            'cloudflare_api_key'  => '',
+            'cloudflare_zone_id'  => '',
+            'auth_type'           => 'global',
+            'check_interval'      => 15,
+            'selected_records'    => [],
+            'dns_records_cache'   => [],
+            'dns_cache_last_sync' => '',
+            'last_check'          => '',
+            'last_status_general' => 'NO',
+            'last_status_domain'  => 'NO',
+            'last_update'         => '',
+            'logging_enabled'     => 1,
+            'log_retention_days'  => 30,
+            'cron_secret'         => $secret,
+        ];
+    }
+    private function clear_logs_file(){
+        $path = $this->get_log_file_path();
+        if (file_exists($path)) @unlink($path);
+    }
+    public function handle_option_updated($option, $old, $new){
         if ($option !== $this->option_name) return;
         if ($this->suspend_reschedule) return;
         $old_interval = isset($old['check_interval']) ? intval($old['check_interval']) : null;
@@ -250,23 +284,7 @@ final class CloudflareFootballBypass
     private function normalize_settings($opt_in){
         $changed = false;
         $opt = is_array($opt_in) ? $opt_in : [];
-        $defaults = [
-            'cloudflare_email'    => '',
-            'cloudflare_api_key'  => '',
-            'cloudflare_zone_id'  => '',
-            'auth_type'           => 'global',
-            'check_interval'      => 15,
-            'selected_records'    => [],
-            'dns_records_cache'   => [],
-            'dns_cache_last_sync' => '',
-            'last_check'          => '',
-            'last_status_general' => 'NO',
-            'last_status_domain'  => 'NO',
-            'last_update'         => '',
-            'logging_enabled'     => 1,
-            'log_retention_days'  => 30,
-            'cron_secret'         => '',
-        ];
+        $defaults = $this->get_default_settings();
         foreach ($defaults as $k=>$v){ if (!array_key_exists($k,$opt)) { $opt[$k]=$v; $changed=true; } }
 
         $auth = in_array($opt['auth_type'], ['global','token'], true) ? $opt['auth_type'] : 'global';
@@ -364,6 +382,7 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         add_settings_field('logging_enabled', __('Registro de acciones','cfb'), [$this,'logging_enabled_render'], 'cfb_settings_page', 'cfb_plugin_section');
         add_settings_field('log_retention_days', __('Retención de logs (días)','cfb'), [$this,'log_retention_render'], 'cfb_settings_page', 'cfb_plugin_section');
         add_settings_field('cron_secret', __('Token para cron externo','cfb'), [$this,'cron_secret_render'], 'cfb_settings_page', 'cfb_plugin_section');
+        add_settings_field('reset_settings', __('Resetear configuración','cfb'), [$this,'reset_settings_render'], 'cfb_settings_page', 'cfb_plugin_section');
     }
 
     public function sanitize_settings($input){
@@ -393,9 +412,21 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         $san['logging_enabled']     = isset($input['logging_enabled']) ? (int)!empty($input['logging_enabled']) : ($existing['logging_enabled'] ?? 1);
         $san['log_retention_days']  = isset($input['log_retention_days']) ? intval($input['log_retention_days']) : ($existing['log_retention_days'] ?? 30);
         $san['cron_secret']         = isset($input['cron_secret']) ? sanitize_text_field($input['cron_secret']) : ($existing['cron_secret'] ?? '');
+        $reset_requested            = !empty($input['reset_settings']);
 
         // Normaliza estructuras
         list($san,) = $this->normalize_settings($san);
+
+        if ($reset_requested){
+            $san = $this->get_default_settings(true);
+            $this->clear_logs_file();
+            delete_option('cfb_settings_last_trace');
+            delete_transient('cfb_settings_notice_ok');
+            delete_transient('cfb_settings_notice_err');
+            $this->log('Configuración reseteada manualmente.');
+        }
+
+        unset($san['reset_settings']);
 
         // Reprogramar cron si cambia intervalo
         if (!isset($existing['check_interval']) || intval($existing['check_interval']) !== intval($san['check_interval'])) {
@@ -601,6 +632,10 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         $url = add_query_arg(['cfb_cron'=>1,'token'=>$secret], home_url('/wp-cron.php'));
         echo '<code>'.esc_html($url).'</code>';
         echo '<p class="description">'.__('Puedes regenerar el token borrándolo y guardando los ajustes (se creará uno nuevo).','cfb').'</p>';
+    }
+    public function reset_settings_render(){
+        echo '<label><input type="checkbox" name="'.esc_attr($this->option_name).'[reset_settings]" value="1"> '.__('Borrar toda la configuración del plugin al guardar','cfb').'</label>';
+        echo '<p class="description" style="color:#b32d2e">'.__('Esta acción elimina credenciales, registros seleccionados, caché DNS y logs. Tendrás que configurar el plugin de nuevo.','cfb').'</p>';
     }
 
     /* ================== Render: Operación ================== */
