@@ -120,6 +120,8 @@ final class CloudflareFootballBypass
             'logging_enabled'     => 1,
             'log_retention_days'  => 30,
             'cron_secret'         => $secret,
+            'bypass_active'       => 0,
+            'bypass_blocked_ips'  => [],
         ];
     }
     private function clear_logs_file(){
@@ -311,8 +313,22 @@ final class CloudflareFootballBypass
         if ($days < 1) $days = 1;
         if ($days !== intval($opt['log_retention_days'])) { $opt['log_retention_days']=$days; $changed=true; }
         if (empty($opt['cron_secret']) || !is_string($opt['cron_secret'])) {
-            $opt['cron_secret'] = wp_generate_password(32, false, false);
+            $opt['cron_secret'] = $this->generate_cron_secret();
             $changed = true;
+        }
+        $opt['bypass_active'] = !empty($opt['bypass_active']) ? 1 : 0;
+        if (!isset($opt['bypass_blocked_ips']) || !is_array($opt['bypass_blocked_ips'])) {
+            $opt['bypass_blocked_ips'] = [];
+            $changed = true;
+        } else {
+            $normalized_ips = [];
+            foreach ($opt['bypass_blocked_ips'] as $ip){
+                if (is_string($ip) && $ip !== '') $normalized_ips[] = $ip;
+            }
+            if ($normalized_ips !== $opt['bypass_blocked_ips']) {
+                $opt['bypass_blocked_ips'] = $normalized_ips;
+                $changed = true;
+            }
         }
         return [$opt,$changed];
     }
@@ -412,6 +428,8 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         $san['logging_enabled']     = isset($input['logging_enabled']) ? (int)!empty($input['logging_enabled']) : ($existing['logging_enabled'] ?? 1);
         $san['log_retention_days']  = isset($input['log_retention_days']) ? intval($input['log_retention_days']) : ($existing['log_retention_days'] ?? 30);
         $san['cron_secret']         = isset($input['cron_secret']) ? sanitize_text_field($input['cron_secret']) : ($existing['cron_secret'] ?? '');
+        $san['bypass_active']       = isset($input['bypass_active']) ? (int)!empty($input['bypass_active']) : ($existing['bypass_active'] ?? 0);
+        $san['bypass_blocked_ips']  = array_key_exists('bypass_blocked_ips',$input) ? (array)$input['bypass_blocked_ips'] : ($existing['bypass_blocked_ips'] ?? []);
         $reset_requested            = !empty($input['reset_settings']);
 
         // Normaliza estructuras
@@ -1120,8 +1138,16 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         $calc=$this->compute_statuses_from_json();
         $general=$calc['general'];
         $domain=$calc['domain'];
+        $blocked_domain_ips = $calc['blocked_domain_ips'] ?? [];
+        $stored_blocked = isset($settings['bypass_blocked_ips']) && is_array($settings['bypass_blocked_ips']) ? $settings['bypass_blocked_ips'] : [];
         $now=current_time('mysql');
+
         $should_disable = ($domain==='SÍ');
+        if (!$should_disable && !empty($settings['bypass_active'])) {
+            if (!empty(array_intersect($stored_blocked, $blocked_domain_ips))) {
+                $should_disable = true;
+            }
+        }
         $desiredProxied = !$should_disable; // dominio bloqueado => OFF, si no => ON
 
         $updated=0;
@@ -1140,6 +1166,13 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         $settings['last_status_general']=($general==='SÍ')?'SI':'NO';
         $settings['last_status_domain']=($domain==='SÍ')?'SI':'NO';
         $settings['last_update']=$calc['last_update'] ?? $settings['last_update'];
+        if ($should_disable) {
+            $settings['bypass_active']=1;
+            $settings['bypass_blocked_ips']=!empty($blocked_domain_ips) ? $blocked_domain_ips : $stored_blocked;
+        } else {
+            $settings['bypass_active']=0;
+            $settings['bypass_blocked_ips']=[];
+        }
         $this->save_settings($settings);
         $this->log("Auto-check: general={$settings['last_status_general']} domain={$settings['last_status_domain']} updated=$updated");
         $changes = [];
@@ -1154,7 +1187,15 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
             'domain'=>$settings['last_status_domain'],
             'registros_seleccionados'=>count($settings['selected_records'] ?? []),
         ];
-        $log_context['accion'] = $should_disable ? 'Proxy OFF (dominio bloqueado)' : 'Proxy ON (dominio sin bloqueo)';
+        if ($should_disable) {
+            $log_context['accion'] = ($domain==='SÍ') ? 'Proxy OFF (dominio bloqueado)' : 'Proxy OFF (esperando desbloqueo)';
+        } else {
+            $log_context['accion'] = 'Proxy ON (dominio sin bloqueo)';
+        }
+        $log_context['bypass_activo'] = $settings['bypass_active'];
+        if (!empty($settings['bypass_blocked_ips'])) {
+            $log_context['ips_bloqueadas'] = $settings['bypass_blocked_ips'];
+        }
         if ($updated>0) {
             $log_context['cambios']='Se aplicaron '.$updated.' cambios de proxy.';
         } else {
@@ -1210,14 +1251,21 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         foreach ($map as $ip=>$blocked){ if ($blocked===true){ $general_blocked=true; break; } }
 
         $resolved_ips=$this->resolve_domain_ips($domain, $force_refresh_ips);
+        $blocked_domain_ips=[];
         $domain_blocked=false;
-        foreach ($resolved_ips as $ip){ if (isset($map[$ip]) && $map[$ip]===true){ $domain_blocked=true; break; } }
+        foreach ($resolved_ips as $ip){
+            if (isset($map[$ip]) && $map[$ip]===true){
+                $domain_blocked=true;
+                $blocked_domain_ips[]=$ip;
+            }
+        }
 
         return [
             'general'     => $general_blocked?'SÍ':'NO',
             'domain'      => $domain_blocked  ?'SÍ':'NO',
             'fresh'       => $data['fresh']??false,
             'domain_ips'  => $resolved_ips,
+            'blocked_domain_ips' => $blocked_domain_ips,
             'last_update' => $last_update_str,
         ];
     }
