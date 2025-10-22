@@ -3,9 +3,11 @@
  * Plugin Name: CF Football Bypass (Cloudflare)
  * Plugin URI: https://carrero.es
  * Description: Opera con Cloudflare para alternar Proxy (ON/CDN) y DNS Only (OFF) según bloqueos, con caché persistente de registros y acciones AJAX. UI separada: Operación y Configuración.
- * Version: 1.5.4
+ * Version: 1.5.5
  * Author: David Carrero (@carrero)
  * License: GPL v2 or later
+ * 
+ * MODIFICACIÓN: Añadido toggle "force_proxy_off_override" para desactivar proxy cuando General=SI
  */
 
 if (!defined('ABSPATH')) exit;
@@ -102,6 +104,8 @@ final class CloudflareFootballBypass
             return md5(uniqid('', true));
         }
     }
+    
+    // MODIFICACIÓN: Añadido 'force_proxy_off_override' => 0
     private function get_default_settings($force_new_token=false){
         $secret = $force_new_token ? $this->generate_cron_secret() : '';
         return [
@@ -124,8 +128,10 @@ final class CloudflareFootballBypass
             'bypass_blocked_ips'  => [],
             'bypass_check_cooldown' => 60,
             'bypass_last_change'    => 0,
+            'force_proxy_off_override' => 0,  // NUEVO: Override para forzar OFF cuando General=SI
         ];
     }
+    
     private function clear_logs_file(){
         $path = $this->get_log_file_path();
         if (file_exists($path)) @unlink($path);
@@ -285,6 +291,8 @@ final class CloudflareFootballBypass
         }
         return $out;
     }
+    
+    // MODIFICACIÓN: Añadida normalización de 'force_proxy_off_override'
     private function normalize_settings($opt_in){
         $changed = false;
         $opt = is_array($opt_in) ? $opt_in : [];
@@ -340,6 +348,10 @@ final class CloudflareFootballBypass
             }
         }
         $opt['bypass_last_change'] = isset($opt['bypass_last_change']) ? intval($opt['bypass_last_change']) : 0;
+        
+        // MODIFICACIÓN: Normalizar force_proxy_off_override
+        $opt['force_proxy_off_override'] = !empty($opt['force_proxy_off_override']) ? 1 : 0;
+        
         return [$opt,$changed];
     }
     private function get_settings(){
@@ -356,12 +368,10 @@ final class CloudflareFootballBypass
         if (empty($s['check_interval'])) { $s['check_interval'] = 15; $this->save_settings($s); }
         if (!wp_next_scheduled($this->cron_hook)) {
             $interval = max(5, min(60, intval($s['check_interval'])));
-            /* cleanup legacy schedule names */
-$next = wp_next_scheduled($this->cron_hook);
-while ($next) { wp_unschedule_event($next, $this->cron_hook); $next = wp_next_scheduled($this->cron_hook); }
-// schedule with stable slug
-wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
-}
+            $next = wp_next_scheduled($this->cron_hook);
+            while ($next) { wp_unschedule_event($next, $this->cron_hook); $next = wp_next_scheduled($this->cron_hook); }
+            wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
+        }
     }
     public function deactivate(){
         $timestamp = wp_next_scheduled($this->cron_hook);
@@ -393,6 +403,7 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
 
     /* ================== Settings API ================== */
 
+    // MODIFICACIÓN: Añadido campo 'force_proxy_off_override'
     public function settings_init(){
         register_setting('cfb_settings_group', $this->option_name, [$this, 'sanitize_settings']);
 
@@ -405,6 +416,7 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         add_settings_section('cfb_plugin_section', __('Ajustes del plugin','cfb'), '__return_false', 'cfb_settings_page');
         add_settings_field('check_interval', __('Intervalo de comprobación (minutos)','cfb'), [$this,'check_interval_render'], 'cfb_settings_page', 'cfb_plugin_section');
         add_settings_field('bypass_check_cooldown', __('Intervalo tras desactivar Cloudflare (min)','cfb'), [$this,'bypass_check_cooldown_render'], 'cfb_settings_page', 'cfb_plugin_section');
+        add_settings_field('force_proxy_off_override', __('Forzar Proxy OFF durante fútbol','cfb'), [$this,'force_proxy_off_override_render'], 'cfb_settings_page', 'cfb_plugin_section');
         add_settings_field('selected_records', __('Registros DNS a gestionar (se cargan en Operación)','cfb'), [$this,'selected_records_hint'], 'cfb_settings_page', 'cfb_plugin_section');
         add_settings_field('logging_enabled', __('Registro de acciones','cfb'), [$this,'logging_enabled_render'], 'cfb_settings_page', 'cfb_plugin_section');
         add_settings_field('log_retention_days', __('Retención de logs (días)','cfb'), [$this,'log_retention_render'], 'cfb_settings_page', 'cfb_plugin_section');
@@ -412,6 +424,7 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         add_settings_field('reset_settings', __('Resetear configuración','cfb'), [$this,'reset_settings_render'], 'cfb_settings_page', 'cfb_plugin_section');
     }
 
+    // MODIFICACIÓN: Añadido sanitizado de 'force_proxy_off_override'
     public function sanitize_settings($input){
         $existing = get_option($this->option_name, []);
         $san = [];
@@ -443,6 +456,10 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         $san['bypass_active']       = isset($input['bypass_active']) ? (int)!empty($input['bypass_active']) : ($existing['bypass_active'] ?? 0);
         $san['bypass_blocked_ips']  = array_key_exists('bypass_blocked_ips',$input) ? (array)$input['bypass_blocked_ips'] : ($existing['bypass_blocked_ips'] ?? []);
         $san['bypass_last_change']  = isset($input['bypass_last_change']) ? intval($input['bypass_last_change']) : ($existing['bypass_last_change'] ?? 0);
+        
+        // MODIFICACIÓN: Sanitizar force_proxy_off_override
+        $san['force_proxy_off_override'] = isset($input['force_proxy_off_override']) ? (int)!empty($input['force_proxy_off_override']) : ($existing['force_proxy_off_override'] ?? 0);
+        
         $reset_requested            = !empty($input['reset_settings']);
 
         // Normaliza estructuras
@@ -649,6 +666,16 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
             esc_attr($this->option_name), $val);
         echo '<p class="description">'.__('Minutos que deben pasar tras desactivar Cloudflare antes de volver a comprobar si puede reactivarse (5-1440).','cfb').'</p>';
     }
+    
+    // MODIFICACIÓN: Nuevo render para force_proxy_off_override
+    public function force_proxy_off_override_render(){
+        $s = $this->get_settings();
+        $checked = !empty($s['force_proxy_off_override']) ? 'checked' : '';
+        echo '<label><input type="checkbox" name="'.esc_attr($this->option_name).'[force_proxy_off_override]" value="1" '.$checked.'> '.__('Desactivar Proxy cuando hay fútbol (General=SI), sin esperar detección de este dominio','cfb').'</label>';
+        echo '<p class="description" style="color:#d63638;font-weight:600;">'.__('⚠️ IMPORTANTE: Con esta opción activada, el proxy se desactivará automáticamente cuando hayahora.futbol indique que hay bloqueos activos (General=SI), aunque tu dominio específico no haya sido detectado como bloqueado.','cfb').'</p>';
+        echo '<p class="description">'.__('Útil para evitar falsos negativos cuando sabes que tu sitio es bloqueado durante eventos de fútbol pero la detección de IP no siempre funciona correctamente.','cfb').'</p>';
+    }
+    
     public function logging_enabled_render(){
         $s = $this->get_settings();
         $checked = !empty($s['logging_enabled']) ? 'checked' : '';
@@ -725,10 +752,10 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         echo 'Dominio: <strong>'.esc_html($domain).'</strong> — <a href="'.esc_url($check_url).'" target="_blank" rel="noopener">Abrir comprobador</a></p>';
 
         echo '<h2 class="title">Registros DNS en caché</h2>';
-        echo '<p class="description">Debes seleccionar los registros que debemos controlar y pulsar “Probar conexión y cargar DNS” para actualizar el listado.</p>';
+        echo '<p class="description">Debes seleccionar los registros que debemos controlar y pulsar "Probar conexión y cargar DNS" para actualizar el listado.</p>';
         echo '<div id="cfb-dns-list">';
         if (empty($cache)) {
-            echo '<p>No hay registros en caché. Pulsa “Probar conexión y cargar DNS”.</p>';
+            echo '<p>No hay registros en caché. Pulsa "Probar conexión y cargar DNS".</p>';
         } else {
             $this->echo_dns_table($cache, $sel);
         }
@@ -853,7 +880,6 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
                 data.append('_ajax_nonce', testBtn ? testBtn.dataset.nonce : '');
                 var sel = selection();
                 sel.forEach(function(id){ data.append('selected[]', id); });
-                // (informativo) mandamos la selección en bruto por si se usa en el servidor
                 data.append('<?php echo esc_js($this->option_name); ?>[selected_records]', JSON.stringify(sel));
 
                 fetch(ajaxURL, { method:'POST', body:data, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'} })
@@ -1125,7 +1151,7 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
 
         $headers=$this->api_headers($s);
         $url='https://api.cloudflare.com/client/v4/zones/'.rawurlencode($s['cloudflare_zone_id']).'/dns_records/'.rawurlencode($record_id);
-        $ttl=intval($existing['ttl']??1); if ($proxied_on) $ttl=1; // ON => ttl=auto
+        $ttl=intval($existing['ttl']??1); if ($proxied_on) $ttl=1;
         $payload=['type'=>$type?:'A','name'=>$existing['name']??'','content'=>$existing['content']??'','ttl'=>$ttl,'proxied'=>(bool)$proxied_on];
 
         $r=wp_remote_request($url,['method'=>'PUT','headers'=>$headers,'timeout'=>30,'body'=>wp_json_encode($payload)]);
@@ -1148,12 +1174,13 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         $s=$this->get_settings();
         $s['dns_records_cache']=$records;
         $s['dns_cache_last_sync']=current_time('mysql');
-        $ok = $this->save_settings($s); // pasa por sanitize_settings y se respeta el caché entrante
+        $ok = $this->save_settings($s);
         $this->log('Persistencia cache DNS: '.($ok?'OK':'SIN CAMBIOS').' ('.count($records).' registros).');
     }
 
     /* ================== Lógica automática por JSON ================== */
-
+    
+    // MODIFICACIÓN CRÍTICA: Añadida lógica de override para forzar OFF cuando General=SI
     public function check_football_and_manage_cloudflare(){
         $settings=$this->get_settings();
         $calc=$this->compute_statuses_from_json();
@@ -1172,6 +1199,13 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
 
         $should_disable = ($domain==='SÍ');
         $reason = $should_disable ? 'domain_blocked' : 'domain_clear';
+        
+        // MODIFICACIÓN: Override - forzar OFF cuando General=SI aunque dominio no esté bloqueado
+        if (!$should_disable && !empty($settings['force_proxy_off_override']) && $general==='SÍ') {
+            $should_disable = true;
+            $reason = 'override_general_football';
+        }
+        
         $cooldown_waiting = false;
         $cooldown_remaining = 0;
         $still_waiting_ips = [];
@@ -1189,7 +1223,7 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
             }
         }
 
-        $desiredProxied = !$should_disable; // dominio bloqueado => OFF, si no => ON
+        $desiredProxied = !$should_disable;
 
         $updated=0;
         $detailed_results=[];
@@ -1237,10 +1271,13 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
             'cooldown_minutos'=>$cooldown_minutes,
             'motivo'=>$reason,
             'bypass_ultima_modificacion'=>$settings['bypass_last_change'] ?? 0,
+            'override_activado'=>!empty($settings['force_proxy_off_override']) ? 1 : 0,
         ];
         if ($should_disable) {
             if ($reason === 'domain_blocked') {
                 $log_context['accion'] = 'Proxy OFF (dominio bloqueado)';
+            } elseif ($reason === 'override_general_football') {
+                $log_context['accion'] = 'Proxy OFF (OVERRIDE: General=SI, fútbol detectado)';
             } elseif ($reason === 'waiting_previous_ips') {
                 $log_context['accion'] = 'Proxy OFF (esperando desbloqueo de IPs anteriores)';
             } elseif ($reason === 'cooldown') {
@@ -1308,7 +1345,7 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
     function compute_statuses_from_json($force_refresh_ips=false){
         $domain=$this->get_site_domain();
         $data=$this->fetch_status_json();
-        if ($data===null){ return ['general'=>'NO','domain'=>'NO','fresh'=>false,'domain_ips'=>[],'last_update'=>'']; }
+        if ($data===null){ return ['general'=>'NO','domain'=>'NO','fresh'=>false,'domain_ips'=>[],'blocked_domain_ips'=>[],'last_update'=>'']; }
 
         $map=$data['ip_map']??[];
         $last_update_str=$data['last_update']??'';
@@ -1369,7 +1406,6 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         return null;
     }
     private function fetch_status_json(){
-        // Always try remote; keep a local copy and use it for processing
         $uploads_dir = WP_CONTENT_DIR . '/uploads/cfb';
         $local_path  = $uploads_dir . '/data.json';
 
@@ -1423,7 +1459,6 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
             }
         }
 
-        // Choose processing body (prefer local if exists)
         $body = $local_body ?: ($remote_ok ? $remote_body : null);
         if (!is_string($body) || $body==='') return null;
 
@@ -1593,7 +1628,6 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
             wp_send_json_error(['message'=>'Zone ID vacío.','log'=>$log]);
         }
 
-        // Lee DNS y PERSISTE caché
         $this->trace($log,'Obteniendo registros DNS (A, AAAA, CNAME)…');
         $records=$this->fetch_dns_records(['A','AAAA','CNAME'],$log);
         $count=count($records);
@@ -1612,10 +1646,8 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         $this->persist_dns_cache($records);
         $this->trace($log,'Cache actualizado y guardado.');
 
-        // Persistir selección marcada (si la hay)
         $sel = $this->persist_selected_from_ajax();
 
-        // Render tabla con lo recien guardado
         $s2=$this->get_settings();
         ob_start();
         $this->echo_dns_table($s2['dns_records_cache'], $sel ?: ($s2['selected_records'] ?? []));
@@ -1726,7 +1758,7 @@ wp_schedule_event(time() + 60, 'cf_fb_custom', $this->cron_hook);
         if ($nextTs && $nextTs <= $nowTs - MINUTE_IN_SECONDS) {
             $cronState='ATRASADO (WP-Cron no ha podido ejecutarse)';
         }
-        $msg="Cron hook: {$this->cron_hook}\nIntervalo: {$mins} min\nSiguiente ejecucion: {$next}\nEstado cron: {$cronState}\nUltima comprobacion: ".($s['last_check']?:'—')."\nGeneral (bloqueos IPs): ".($s['last_status_general']?:'—')."\nDominio bloqueado: ".($s['last_status_domain']?:'—')."\nUltima actualizacion (JSON de IPs): ".(($s['last_update']??'')?:'—')."\nRegistros sincronizados: ".(($s['dns_cache_last_sync']??'')?:'—');
+        $msg="Cron hook: {$this->cron_hook}\nIntervalo: {$mins} min\nSiguiente ejecucion: {$next}\nEstado cron: {$cronState}\nUltima comprobacion: ".($s['last_check']?:'—')."\nGeneral (bloqueos IPs): ".($s['last_status_general']?:'—')."\nDominio bloqueado: ".($s['last_status_domain']?:'—')."\nOverride activo: ".(!empty($s['force_proxy_off_override'])?'SI':'NO')."\nUltima actualizacion (JSON de IPs): ".(($s['last_update']??'')?:'—')."\nRegistros sincronizados: ".(($s['dns_cache_last_sync']??'')?:'—');
         wp_send_json_success(['msg'=>$msg]);
     }
 }
