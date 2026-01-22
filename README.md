@@ -1,5 +1,7 @@
 # CF Football Bypass
 
+**Versión 1.6.0** | [Changelog](readme.txt)
+
 Plugin de WordPress que automatiza el cambio entre modo Proxied y DNS Only en Cloudflare cuando hay bloqueos masivos ordenados durante los partidos de fútbol. Consulta el feed de [hayahora.futbol](https://hayahora.futbol/) y activa/desactiva los registros seleccionados para mantener accesible tu sitio legítimo, con un periodo de enfriamiento configurable antes de volver a activar Cloudflare.
 
 ## Instalación rápida
@@ -11,7 +13,7 @@ Plugin de WordPress que automatiza el cambio entre modo Proxied y DNS Only en Cl
 
 ## Autor y soporte
 
-- Autor: David Carrero ([@carrero](https://x.com/carrero))
+- Autor: [David Carrero Fernandez-Baillo](https://carrero.es)
 - Sitio web: https://carrero.es
 - Contacto rápido: https://carrero.es/contacto/
 
