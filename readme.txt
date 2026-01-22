@@ -4,15 +4,17 @@ Tags: cloudflare, dns, football, bypass, laliga, ip-blocking
 Requires at least: 5.0
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.0.1
+Stable tag: 1.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: cf-football-bypass
+Domain Path: /languages
 
 Gestiona automaticamente la configuracion de Cloudflare durante los partidos de futbol para evitar bloqueos de IPs masivos.
 
 == Description ==
 
-CF Football Bypass es un plugin de WordPress creado por David Carrero (@carrero) para ayudar a sitios espanoles a capear los bloqueos masivos de IPs que ordena LaLiga durante los partidos de futbol. El proyecto es libre (GPLv2) y su codigo fuente esta disponible en GitHub: https://github.com/dcarrero/cf-football-bypass
+CF Football Bypass es un plugin de WordPress creado por David Carrero Fernandez-Baillo para ayudar a sitios espanoles a capear los bloqueos masivos de IPs que ordena LaLiga durante los partidos de futbol. El proyecto es libre (GPLv2) y su codigo fuente esta disponible en GitHub: https://github.com/dcarrero/cf-football-bypass
 
 El plugin monitoriza automaticamente los eventos futbolisticos en Espana consultando hayahora.futbol y, en funcion del resultado, gestiona los registros DNS de Cloudflare para alternar entre modo proxied y DNS Only. Asi se evita que los visitantes legitimos caigan en los bloqueos judiciales dirigidos contra el futbol pirata.
 
@@ -39,7 +41,7 @@ Soporte dual de autenticacion Cloudflare
 - Token API con permisos especificos (mas seguro)
 
 Control granular
-- Seleccion especifica de registros DNS (A y CNAME)
+- Seleccion especifica de registros DNS (A, AAAA y CNAME)
 - Duracion configurable del bypass (60-600 minutos)
 - Intervalo personalizable tras desactivar Cloudflare antes de reintentar activarlo
 - Control manual para casos especiales
@@ -92,6 +94,24 @@ Para Token API (recomendado):
    - Zone:Read (para leer la informacion de zona)
    - DNS:Read (para listar registros DNS)
    - DNS:Edit (para modificar el estado del proxy)
+
+== External Services ==
+
+Este plugin se conecta a los siguientes servicios externos:
+
+= hayahora.futbol =
+El plugin consulta periodicamente el endpoint https://hayahora.futbol/estado/data.json para obtener informacion sobre bloqueos de IPs activos durante eventos de futbol en Espana. Este servicio es gratuito y de codigo abierto.
+- URL: https://hayahora.futbol/
+- Politica de privacidad: El servicio no recopila datos personales de los usuarios del plugin.
+
+= Cloudflare API =
+El plugin utiliza la API oficial de Cloudflare (https://api.cloudflare.com/client/v4/) para gestionar los registros DNS de tu zona. Requiere credenciales de API que tu proporcionas.
+- URL: https://api.cloudflare.com/
+- Terminos de servicio: https://www.cloudflare.com/terms/
+- Politica de privacidad: https://www.cloudflare.com/privacypolicy/
+
+= Enlaces de afiliados =
+La pagina de operacion del plugin incluye enlaces de afiliado claramente marcados con "(aff)" hacia servicios VPN y herramientas de seguridad. Estos enlaces son opcionales y no afectan la funcionalidad del plugin.
 
 == Frequently Asked Questions ==
 
@@ -146,12 +166,23 @@ En la pestaña Operacion pulsa "Diagnostico WP-Cron" para ver proxima ejecucion 
 En el menu CF Football Bypass > Logs. Muestra las ultimas ejecuciones automaticas (cron interno o externo) y las acciones manuales con fecha, detalle y usuario.
 
 = Puedo desactivar los logs? =
-Si. En Ajustes > CF Football Bypass puedes desactivar el registro o ajustar los dias de retencion (minimo 1). Los logs se guardan en `cfb-actions.log` dentro del plugin.
+Si. En Ajustes > CF Football Bypass puedes desactivar el registro o ajustar los dias de retencion (minimo 1). Los logs se guardan en `wp-content/uploads/cfb-logs/cfb-actions.log` protegidos con .htaccess.
 
 = Como verifico que el cron funciona correctamente? =
 Puedes comprobar si esta programado en Herramientas > Salud del sitio > Info > Eventos programados, buscando el evento 'cfb_check_football_status'. Tambien puedes revisar los logs de error de WordPress donde el plugin registra todas sus acciones.
 
 == Changelog ==
+
+= 1.6.0 =
+* SEGURIDAD: Archivo de logs movido a wp-content/uploads/cfb-logs/ con proteccion .htaccess
+* SEGURIDAD: Anonimizacion de IPs en logs para cumplimiento GDPR
+* SEGURIDAD: Eliminados operadores de supresion de errores (@) por verificaciones explicitas
+* SEGURIDAD: Anadidos archivos index.php para prevenir listado de directorios
+* MEJORA: Soporte completo de internacionalizacion (i18n) con text domain cf-football-bypass
+* MEJORA: Header del plugin actualizado con todos los campos requeridos por WordPress.org
+* MEJORA: Creacion automatica de directorio de logs con proteccion
+* MEJORA: Mejor manejo de errores en escritura de archivos
+* FIX: Sincronizacion de version entre plugin header y readme.txt
 
 = 1.0.1 =
 * Anadido soporte para Token API de Cloudflare
@@ -170,6 +201,9 @@ Puedes comprobar si esta programado en Herramientas > Salud del sitio > Info > E
 
 == Upgrade Notice ==
 
+= 1.6.0 =
+Version preparada para el directorio de WordPress.org. Incluye mejoras de seguridad importantes: logs protegidos, IPs anonimizadas, y soporte de traducciones.
+
 = 1.0.1 =
 Esta version anade soporte para Token API de Cloudflare (mas seguro que API Key Global) y mejora el control manual del bypass con confirmaciones de seguridad.
 
@@ -183,9 +217,9 @@ Esta version anade soporte para Token API de Cloudflare (mas seguro que API Key 
 
 == Soporte ==
 
-- Autor: David Carrero (`@carrero` en X)  
-- Contacto: https://carrero.es/contacto/  
-- Twitter/X: https://x.com/carrero
+- Autor: David Carrero Fernandez-Baillo
+- Web: https://carrero.es
+- Contacto: https://carrero.es/contacto/
 
 Si necesitas ayuda, escribe por mensaje directo en X o utiliza el formulario de contacto. Las issues y mejoras tambien son bienvenidas en el repositorio: https://github.com/dcarrero/cf-football-bypass
 

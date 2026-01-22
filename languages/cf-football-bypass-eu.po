@@ -1,0 +1,174 @@
+# Basque (Euskara) translation for CF Football Bypass
+# Copyright (C) 2024 David Carrero Fernandez-Baillo
+# This file is distributed under the GPL v2 or later.
+msgid ""
+msgstr ""
+"Project-Id-Version: CF Football Bypass 1.6.0\n"
+"Report-Msgid-Bugs-To: https://github.com/dcarrero/cf-football-bypass/issues\n"
+"POT-Creation-Date: 2024-01-22 00:00+0000\n"
+"PO-Revision-Date: 2024-01-22 00:00+0000\n"
+"Last-Translator: David Carrero Fernandez-Baillo <david@carrero.es>\n"
+"Language-Team: Basque <eu@li.org>\n"
+"Language: eu\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Generator: Claude Code\n"
+"X-Domain: cf-football-bypass\n"
+
+#. Plugin Name of the plugin
+msgid "CF Football Bypass (Cloudflare)"
+msgstr "CF Football Bypass (Cloudflare)"
+
+#. Description of the plugin
+msgid "Opera con Cloudflare para alternar Proxy (ON/CDN) y DNS Only (OFF) según bloqueos, con caché persistente de registros y acciones AJAX. UI separada: Operación y Configuración."
+msgstr "Cloudflare-rekin lan egiten du Proxy (ON/CDN) eta DNS Only (OFF) artean txandakatzeko blokeoen arabera, DNS cache iraunkorrarekin eta AJAX ekintzekin. Interfaze bereizia: Eragiketa eta Konfigurazioa."
+
+#. Author of the plugin
+msgid "David Carrero Fernandez-Baillo"
+msgstr "David Carrero Fernandez-Baillo"
+
+#: cf_football_bypass.php:464
+msgid "Credenciales de Cloudflare"
+msgstr "Cloudflare kredentzialak"
+
+#: cf_football_bypass.php:465
+msgid "Tipo de autenticación"
+msgstr "Autentifikazio mota"
+
+#: cf_football_bypass.php:466
+msgid "Email (sólo Global API Key)"
+msgstr "Emaila (Global API Key soilik)"
+
+#: cf_football_bypass.php:467
+msgid "API Key Global o Token"
+msgstr "API Key Globala edo Tokena"
+
+#: cf_football_bypass.php:468
+msgid "Zone ID"
+msgstr "Zone ID"
+
+#: cf_football_bypass.php:470
+msgid "Ajustes del plugin"
+msgstr "Pluginaren ezarpenak"
+
+#: cf_football_bypass.php:471
+msgid "Intervalo de comprobación (minutos)"
+msgstr "Egiaztapen tartea (minutuak)"
+
+#: cf_football_bypass.php:472
+msgid "Intervalo tras desactivar Cloudflare (min)"
+msgstr "Cloudflare desaktibatu ondorengo tartea (min)"
+
+#: cf_football_bypass.php:473
+msgid "Forzar Proxy OFF durante fútbol"
+msgstr "Proxy OFF behartu futbolean"
+
+#: cf_football_bypass.php:474
+msgid "Registros DNS a gestionar (se cargan en Operación)"
+msgstr "Kudeatzeko DNS erregistroak (Eragiketan kargatzen dira)"
+
+#: cf_football_bypass.php:475
+msgid "Registro de acciones"
+msgstr "Ekintzen erregistroa"
+
+#: cf_football_bypass.php:476
+msgid "Retención de logs (días)"
+msgstr "Log-en atxikipena (egunak)"
+
+#: cf_football_bypass.php:477
+msgid "Token para cron externo"
+msgstr "Kanpoko cron-erako tokena"
+
+#: cf_football_bypass.php:478
+msgid "Resetear configuración"
+msgstr "Konfigurazioa berrezarri"
+
+#: cf_football_bypass.php:641
+msgid "Activo"
+msgstr "Aktibo"
+
+#: cf_football_bypass.php:641
+msgid "Desactivado"
+msgstr "Desaktibatuta"
+
+#: cf_football_bypass.php:642
+msgid "Retención: %d días."
+msgstr "Atxikipena: %d egun."
+
+#: cf_football_bypass.php:644
+msgid "El registro está desactivado. Actívalo en la pestaña de Configuración."
+msgstr "Erregistroa desaktibatuta dago. Aktibatu Konfigurazio fitxan."
+
+#: cf_football_bypass.php:648
+msgid "Todavía no hay eventos registrados."
+msgstr "Oraindik ez dago gertaerarik erregistratuta."
+
+#: cf_football_bypass.php:650
+msgid "El archivo de log existe pero no contiene eventos recientes."
+msgstr "Log fitxategia existitzen da baina ez du azken gertaerarik."
+
+#: cf_football_bypass.php:655
+msgid "Fecha"
+msgstr "Data"
+
+#: cf_football_bypass.php:655
+msgid "Tipo"
+msgstr "Mota"
+
+#: cf_football_bypass.php:655
+msgid "Mensaje"
+msgstr "Mezua"
+
+#: cf_football_bypass.php:655
+msgid "Contexto"
+msgstr "Testuingurua"
+
+#: cf_football_bypass.php:669
+msgid "Se muestran los 250 eventos más recientes."
+msgstr "Azken 250 gertaerak erakusten dira."
+
+#: cf_football_bypass.php:721
+msgid "Minutos que deben pasar tras desactivar Cloudflare antes de volver a comprobar si puede reactivarse (5-1440)."
+msgstr "Cloudflare desaktibatu ondoren igaro behar diren minutuak berraktibatu daitekeen egiaztatu aurretik (5-1440)."
+
+#: cf_football_bypass.php:728
+msgid "Desactivar Proxy cuando hay fútbol (General=SI), sin esperar detección de este dominio"
+msgstr "Proxy desaktibatu futbola dagoenean (Orokorra=BAI), domeinu honen detekzioaren zain egon gabe"
+
+#: cf_football_bypass.php:729
+msgid "⚠️ IMPORTANTE: Con esta opción activada, el proxy se desactivará automáticamente cuando hayahora.futbol indique que hay bloqueos activos (General=SI), aunque tu dominio específico no haya sido detectado como bloqueado."
+msgstr "⚠️ GARRANTZITSUA: Aukera hau aktibatuta, proxy-a automatikoki desaktibatuko da hayahora.futbol-ek blokeo aktiboak daudela adierazten duenean (Orokorra=BAI), zure domeinu espezifikoa blokeatuta detektatu ez bada ere."
+
+#: cf_football_bypass.php:730
+msgid "Útil para evitar falsos negativos cuando sabes que tu sitio es bloqueado durante eventos de fútbol pero la detección de IP no siempre funciona correctamente."
+msgstr "Erabilgarria negatibo faltsuak ekiditeko, zure gunea futbol ekitaldietan blokeatzen dela dakizunean baina IP detekzioak ez du beti ondo funtzionatzen."
+
+#: cf_football_bypass.php:736
+msgid "Guardar acciones en el registro (cron y manuales)"
+msgstr "Ekintzak erregistroan gorde (cron eta eskuzkoak)"
+
+#: cf_football_bypass.php:737
+msgid "Los registros se guardan en wp-content/uploads/cfb-logs/ protegidos y se muestran en la pestaña Logs."
+msgstr "Erregistroak wp-content/uploads/cfb-logs/ karpetan gordetzen dira babestuta eta Logs fitxan erakusten dira."
+
+#: cf_football_bypass.php:744
+msgid "Número de días a conservar registros (mínimo 1)."
+msgstr "Erregistroak gordetzeko egun kopurua (gutxienez 1)."
+
+#: cf_football_bypass.php:750
+msgid "Usa este token en el cron externo:"
+msgstr "Erabili token hau kanpoko cron-ean:"
+
+#: cf_football_bypass.php:753
+msgid "Puedes regenerar el token borrándolo y guardando los ajustes (se creará uno nuevo)."
+msgstr "Tokena birsortu dezakezu ezabatuz eta ezarpenak gordez (berri bat sortuko da)."
+
+#: cf_football_bypass.php:756
+msgid "Borrar toda la configuración del plugin al guardar"
+msgstr "Pluginaren konfigurazio guztia ezabatu gordetzean"
+
+#: cf_football_bypass.php:757
+msgid "Esta acción elimina credenciales, registros seleccionados, caché DNS y logs. Tendrás que configurar el plugin de nuevo."
+msgstr "Ekintza honek kredentzialak, hautatutako erregistroak, DNS cachea eta log-ak ezabatzen ditu. Plugina berriro konfiguratu beharko duzu."
