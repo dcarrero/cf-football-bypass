@@ -4,7 +4,7 @@ Tags: cloudflare, dns, football, bypass, laliga, ip-blocking
 Requires at least: 5.0
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.6.0
+Stable tag: 1.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: cf-football-bypass
@@ -173,6 +173,13 @@ Puedes comprobar si esta programado en Herramientas > Salud del sitio > Info > E
 
 == Changelog ==
 
+= 1.7.0 =
+* MEJORA: Scripts JavaScript ahora usan wp_enqueue_script() y wp_add_inline_script() segun las directrices del directorio de WordPress.org
+* MEJORA: Eliminados todos los bloques <script> inline del codigo PHP
+* MEJORA: Datos dinamicos pasados via wp_localize_script() para mejor separacion de codigo
+* MEJORA: Hook admin_enqueue_scripts implementado correctamente con filtrado por pagina
+* CODIGO: Refactorizacion completa del sistema de assets de admin
+
 = 1.6.0 =
 * SEGURIDAD: Archivo de logs movido a wp-content/uploads/cfb-logs/ con proteccion .htaccess
 * SEGURIDAD: Anonimizacion de IPs en logs para cumplimiento GDPR
@@ -200,6 +207,9 @@ Puedes comprobar si esta programado en Herramientas > Salud del sitio > Info > E
 * Sistema de cron integrado
 
 == Upgrade Notice ==
+
+= 1.7.0 =
+Cumplimiento de directrices WordPress.org: JavaScript ahora se carga correctamente usando wp_enqueue_script() y wp_add_inline_script() en lugar de bloques script inline.
 
 = 1.6.0 =
 Version preparada para el directorio de WordPress.org. Incluye mejoras de seguridad importantes: logs protegidos, IPs anonimizadas, y soporte de traducciones.
