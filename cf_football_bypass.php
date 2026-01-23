@@ -3,7 +3,7 @@
  * Plugin Name: CF Football Bypass (Cloudflare)
  * Plugin URI: https://carrero.es
  * Description: Opera con Cloudflare para alternar Proxy (ON/CDN) y DNS Only (OFF) según bloqueos, con caché persistente de registros y acciones AJAX. UI separada: Operación y Configuración.
- * Version: 1.6.0
+ * Version: 1.7.0
  * Author: David Carrero Fernandez-Baillo
  * Author URI: https://carrero.es
  * License: GPL v2 or later
@@ -36,6 +36,7 @@ final class CloudflareFootballBypass
         add_action('admin_menu', [$this, 'register_menus']);
         add_action('admin_init', [$this, 'settings_init']);
         add_action('admin_notices', [$this, 'settings_save_notices']);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
 
         add_action($this->cron_hook, [$this, 'check_football_and_manage_cloudflare']);
         add_filter('cron_schedules', [$this, 'add_custom_cron_interval']);
@@ -455,6 +456,214 @@ final class CloudflareFootballBypass
         add_submenu_page('cfb-main','Registros','Logs','manage_options','cfb-logs',[$this,'render_logs_page']);
     }
 
+    /* ================== Admin Scripts ================== */
+
+    public function enqueue_admin_scripts($hook){
+        // Solo cargar en las páginas del plugin
+        if (strpos($hook, 'cfb-') === false && strpos($hook, 'cf-football-bypass') === false) {
+            return;
+        }
+
+        // Registrar script handle para asociar inline scripts
+        wp_register_script('cfb-admin', false, array(), '1.7.0', true);
+        wp_enqueue_script('cfb-admin');
+
+        // Pasar datos al JavaScript
+        wp_localize_script('cfb-admin', 'cfbData', array(
+            'ajaxUrl'    => admin_url('admin-ajax.php'),
+            'optionName' => $this->option_name,
+        ));
+
+        // Página de operación principal
+        if (strpos($hook, 'cfb-main') !== false) {
+            wp_add_inline_script('cfb-admin', $this->get_main_page_js());
+        }
+
+        // Página de configuración
+        if (strpos($hook, 'cfb-settings') !== false) {
+            wp_add_inline_script('cfb-admin', $this->get_settings_page_js());
+            wp_add_inline_script('cfb-admin', $this->get_auth_type_js());
+        }
+    }
+
+    private function get_main_page_js(){
+        return "(function(){
+            var ajaxURL = cfbData.ajaxUrl;
+            var consolePre = document.getElementById('cfb-console-pre');
+            var warn = document.getElementById('cfb-warn');
+            function println(msg){ if (!consolePre) return; var ts=new Date().toLocaleTimeString(); consolePre.textContent += '['+ts+'] '+msg+'\\n'; }
+            function clearConsole(){ if (consolePre) consolePre.textContent=''; }
+            function showWait(show){ if (warn) warn.style.display = show ? '' : 'none'; }
+            function selection(){
+                var ids=[], wrap=document.getElementById('cfb-dns-list');
+                if(!wrap) return ids;
+                wrap.querySelectorAll('input[type=\"checkbox\"][name=\"" . esc_js($this->option_name) . "[selected_records][]\"][checked], input[type=\"checkbox\"][name=\"" . esc_js($this->option_name) . "[selected_records][]\"]:checked').forEach(function(cb){ ids.push(cb.value); });
+                return ids;
+            }
+            function post(action, extra, cb){
+                var data=new FormData();
+                data.append('action', action);
+                var testBtn=document.getElementById('cfb-test');
+                data.append('_ajax_nonce', testBtn ? testBtn.dataset.nonce : '');
+                var sel = selection();
+                sel.forEach(function(id){ data.append('selected[]', id); });
+                data.append('" . esc_js($this->option_name) . "[selected_records]', JSON.stringify(sel));
+
+                fetch(ajaxURL, { method:'POST', body:data, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'} })
+                .then(async function(r){
+                    var text = await r.text();
+                    try { return JSON.parse(text); }
+                    catch(e){ return { success:false, data:{ message:'Respuesta no JSON', raw:text, http:r.status } }; }
+                })
+                .then(function(res){
+                    if (res && res.data && res.data.log && Array.isArray(res.data.log)) res.data.log.forEach(println);
+                    if (res && res.log && Array.isArray(res.log)) res.log.forEach(println);
+                    cb(res);
+                })
+                .catch(function(e){ println('Error de red: '+e); })
+                .finally(function(){ showWait(false); });
+            }
+            function refreshTable(html){
+                var wrap=document.getElementById('cfb-dns-list'); if(wrap && html) wrap.innerHTML=html;
+            }
+            function refreshSummary(callback){
+                post('cfb_get_status', null, function(res){
+                    if(res && res.success && res.data){
+                        var d=res.data;
+                        var g=document.getElementById('cfb-summary-general');
+                        var dd=document.getElementById('cfb-summary-domain');
+                        var i=document.getElementById('cfb-summary-ips');
+                        var l=document.getElementById('cfb-summary-lastupdate');
+                        if(g) g.textContent = (d.general==='SÍ')?'SI':'NO';
+                        if(dd) dd.textContent = (d.domain==='SÍ')?'SI':'NO';
+                        if(i) i.textContent = (d.ips && d.ips.length) ? d.ips.join(', ') : '—';
+                        if(l) l.textContent = d.last_update || '—';
+                    }
+                    if (typeof callback === 'function') callback(res);
+                });
+            }
+
+            var testBtn = document.getElementById('cfb-test');
+            if (testBtn) {
+                testBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Probar conexión y cargar DNS: iniciando…');
+                    post('cfb_test_connection', null, function(res){
+                        if (res.success){
+                            refreshTable(res.data && res.data.html ? res.data.html : '');
+                            println('Completado.');
+                        } else {
+                            if (res.data && res.data.message) println('Error: ' + res.data.message);
+                            if (res.data && res.data.http) println('HTTP: ' + res.data.http);
+                            if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
+                        }
+                    });
+                });
+            }
+            var checkBtn = document.getElementById('cfb-check');
+            if (checkBtn) {
+                checkBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Comprobación manual: ejecutando…');
+                    post('cfb_manual_check', null, function(res){
+                        if (res.success){
+                            var d=res.data||{};
+                            println('Última comprobación: '+(d.last||'—'));
+                            println('General (bloqueos IPs): '+(d.general||'—'));
+                            println('Dominio bloqueado: '+(d.domain||'—'));
+                            println('Última actualización (JSON de IPs): '+(d.last_update||'—'));
+                            refreshSummary();
+                        } else {
+                            if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
+                        }
+                    });
+                });
+            }
+            var offBtn = document.getElementById('cfb-off');
+            if (offBtn) {
+                offBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Forzar Proxy OFF (DNS Only): iniciando…');
+                    post('cfb_force_deactivate', null, function(res){
+                        if (res.success){
+                            refreshTable(res.data && res.data.html ? res.data.html : '');
+                            if (res.data && res.data.message) println(res.data.message);
+                            if (res.data && res.data.report) println(res.data.report);
+                            refreshSummary();
+                        } else {
+                            if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
+                        }
+                    });
+                });
+            }
+            var onBtn = document.getElementById('cfb-on');
+            if (onBtn) {
+                onBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Forzar Proxy ON (CDN): iniciando…');
+                    post('cfb_force_activate', null, function(res){
+                        if (res.success){
+                            refreshTable(res.data && res.data.html ? res.data.html : '');
+                            if (res.data && res.data.message) println(res.data.message);
+                            if (res.data && res.data.report) println(res.data.report);
+                            refreshSummary();
+                        } else {
+                            if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
+                        }
+                    });
+                });
+            }
+            var diagBtn = document.getElementById('cfb-diag');
+            if (diagBtn) {
+                diagBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Diagnóstico WP-Cron…');
+                    post('cfb_cron_diagnostics', null, function(res){
+                        if (res.success && res.data && res.data.msg) println(res.data.msg);
+                        else if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
+                    });
+                });
+            }
+            var refreshIpsBtn=document.getElementById('cfb-refresh-ips');
+            if (refreshIpsBtn){
+                refreshIpsBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Actualizando IPs del dominio…');
+                    refreshSummary(function(res){
+                        if (res && res.success) println('IPs actualizadas.');
+                    });
+                });
+            }
+        })();";
+    }
+
+    private function get_settings_page_js(){
+        return "(function(){
+            var form = document.getElementById('cfb-settings-form');
+            var warn = document.getElementById('cfb-warn-settings');
+            var pre  = document.getElementById('cfb-console-pre-settings');
+            if (form) {
+                form.addEventListener('submit', function(){
+                    if (warn) warn.style.display = '';
+                    if (pre) {
+                        var ts = new Date().toLocaleTimeString();
+                        pre.textContent += '['+ts+'] Enviando ajustes… verificando credenciales y permisos en Cloudflare.\\n';
+                    }
+                });
+            }
+        })();";
+    }
+
+    private function get_auth_type_js(){
+        return "document.addEventListener('DOMContentLoaded',function(){
+            var sel=document.getElementById('cfb_auth_type');
+            var email=document.getElementById('cfb_email_input');
+            var row=email?email.closest('tr'):null;
+            function t(){ if(row) row.style.display=(sel.value==='global')?'':'none'; }
+            if(sel){ sel.addEventListener('change',t); t(); }
+        });";
+    }
+
     /* ================== Settings API ================== */
 
     // MODIFICACIÓN: Añadido campo 'force_proxy_off_override'
@@ -607,26 +816,6 @@ final class CloudflareFootballBypass
             foreach ($last['trace'] as $line) echo esc_html($line)."\n";
         }
         echo '</pre></div>';
-
-        // JS espera/console
-        ?>
-        <script>
-        (function(){
-            var form = document.getElementById('cfb-settings-form');
-            var warn = document.getElementById('cfb-warn-settings');
-            var pre  = document.getElementById('cfb-console-pre-settings');
-            if (form) {
-                form.addEventListener('submit', function(){
-                    if (warn) warn.style.display = '';
-                    if (pre) {
-                        var ts = new Date().toLocaleTimeString();
-                        pre.textContent += '['+ts+'] Enviando ajustes… verificando credenciales y permisos en Cloudflare.\n';
-                    }
-                });
-            }
-        })();
-        </script>
-        <?php
         echo '</div>';
     }
 
@@ -678,15 +867,6 @@ final class CloudflareFootballBypass
             <option value="token"  <?php selected($s['auth_type'],'token');  ?>>API Token (Bearer)</option>
         </select>
         <p class="description">Global API Key requiere email; API Token no. Permisos mínimos: Zone:Read, DNS:Read, DNS:Edit.</p>
-        <script>
-        document.addEventListener('DOMContentLoaded',function(){
-            var sel=document.getElementById('cfb_auth_type');
-            var email=document.getElementById('cfb_email_input');
-            var row=email?email.closest('tr'):null;
-            function t(){ if(row) row.style.display=(sel.value==='global')?'':'none'; }
-            sel.addEventListener('change',t); t();
-        });
-        </script>
         <?php
     }
     public function email_render(){
@@ -886,8 +1066,6 @@ final class CloudflareFootballBypass
         echo '</aside>';
 
         echo '</div>'; // .cfb-flex
-
-        $this->print_main_js();
         echo '</div>';
     }
 
@@ -910,144 +1088,6 @@ final class CloudflareFootballBypass
         }
         echo '</tbody></table>';
     }
-
-    private function print_main_js(){ ?>
-        <script>
-        (function(){
-            var ajaxURL = (typeof window.ajaxurl === 'string' && window.ajaxurl) ? window.ajaxurl : '<?php echo esc_js(admin_url('admin-ajax.php','relative')); ?>';
-            var consolePre = document.getElementById('cfb-console-pre');
-            var warn = document.getElementById('cfb-warn');
-            function println(msg){ if (!consolePre) return; var ts=new Date().toLocaleTimeString(); consolePre.textContent += '['+ts+'] '+msg+'\n'; }
-            function clearConsole(){ if (consolePre) consolePre.textContent=''; }
-            function showWait(show){ if (warn) warn.style.display = show ? '' : 'none'; }
-            function selection(){
-                var ids=[], wrap=document.getElementById('cfb-dns-list');
-                if(!wrap) return ids;
-                wrap.querySelectorAll('input[type="checkbox"][name="<?php echo esc_js($this->option_name); ?>[selected_records][]"]:checked').forEach(function(cb){ ids.push(cb.value); });
-                return ids;
-            }
-            function post(action, extra, cb){
-                var data=new FormData();
-                data.append('action', action);
-                var testBtn=document.getElementById('cfb-test');
-                data.append('_ajax_nonce', testBtn ? testBtn.dataset.nonce : '');
-                var sel = selection();
-                sel.forEach(function(id){ data.append('selected[]', id); });
-                data.append('<?php echo esc_js($this->option_name); ?>[selected_records]', JSON.stringify(sel));
-
-                fetch(ajaxURL, { method:'POST', body:data, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'} })
-                .then(async function(r){
-                    var text = await r.text();
-                    try { return JSON.parse(text); }
-                    catch(e){ return { success:false, data:{ message:'Respuesta no JSON', raw:text, http:r.status } }; }
-                })
-                .then(function(res){
-                    if (res && res.data && res.data.log && Array.isArray(res.data.log)) res.data.log.forEach(println);
-                    if (res && res.log && Array.isArray(res.log)) res.log.forEach(println);
-                    cb(res);
-                })
-                .catch(function(e){ println('Error de red: '+e); })
-                .finally(function(){ showWait(false); });
-            }
-            function refreshTable(html){
-                var wrap=document.getElementById('cfb-dns-list'); if(wrap && html) wrap.innerHTML=html;
-            }
-            function refreshSummary(callback){
-                post('cfb_get_status', null, function(res){
-                    if(res && res.success && res.data){
-                        var d=res.data;
-                        var g=document.getElementById('cfb-summary-general');
-                        var dd=document.getElementById('cfb-summary-domain');
-                        var i=document.getElementById('cfb-summary-ips');
-                        var l=document.getElementById('cfb-summary-lastupdate');
-                        if(g) g.textContent = (d.general==='SÍ')?'SI':'NO';
-                        if(dd) dd.textContent = (d.domain==='SÍ')?'SI':'NO';
-                        if(i) i.textContent = (d.ips && d.ips.length) ? d.ips.join(', ') : '—';
-                        if(l) l.textContent = d.last_update || '—';
-                    }
-                    if (typeof callback === 'function') callback(res);
-                });
-            }
-
-            document.getElementById('cfb-test').addEventListener('click', function(e){
-                e.preventDefault(); clearConsole(); showWait(true);
-                println('Probar conexión y cargar DNS: iniciando…');
-                post('cfb_test_connection', null, function(res){
-                    if (res.success){
-                        refreshTable(res.data && res.data.html ? res.data.html : '');
-                        println('Completado.');
-                    } else {
-                        if (res.data && res.data.message) println('Error: ' + res.data.message);
-                        if (res.data && res.data.http) println('HTTP: ' + res.data.http);
-                        if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
-                    }
-                });
-            });
-            document.getElementById('cfb-check').addEventListener('click', function(e){
-                e.preventDefault(); clearConsole(); showWait(true);
-                println('Comprobación manual: ejecutando…');
-                post('cfb_manual_check', null, function(res){
-                    if (res.success){
-                        var d=res.data||{};
-                        println('Última comprobación: '+(d.last||'—'));
-                        println('General (bloqueos IPs): '+(d.general||'—'));
-                        println('Dominio bloqueado: '+(d.domain||'—'));
-                        println('Última actualización (JSON de IPs): '+(d.last_update||'—'));
-                        refreshSummary();
-                    } else {
-                        if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
-                    }
-                });
-            });
-            document.getElementById('cfb-off').addEventListener('click', function(e){
-                e.preventDefault(); clearConsole(); showWait(true);
-                println('Forzar Proxy OFF (DNS Only): iniciando…');
-                post('cfb_force_deactivate', null, function(res){
-                    if (res.success){
-                        refreshTable(res.data && res.data.html ? res.data.html : '');
-                        if (res.data && res.data.message) println(res.data.message);
-                        if (res.data && res.data.report) println(res.data.report);
-                        refreshSummary();
-                    } else {
-                        if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
-                    }
-                });
-            });
-            document.getElementById('cfb-on').addEventListener('click', function(e){
-                e.preventDefault(); clearConsole(); showWait(true);
-                println('Forzar Proxy ON (CDN): iniciando…');
-                post('cfb_force_activate', null, function(res){
-                    if (res.success){
-                        refreshTable(res.data && res.data.html ? res.data.html : '');
-                        if (res.data && res.data.message) println(res.data.message);
-                        if (res.data && res.data.report) println(res.data.report);
-                        refreshSummary();
-                    } else {
-                        if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
-                    }
-                });
-            });
-            document.getElementById('cfb-diag').addEventListener('click', function(e){
-                e.preventDefault(); clearConsole(); showWait(true);
-                println('Diagnóstico WP-Cron…');
-                post('cfb_cron_diagnostics', null, function(res){
-                    if (res.success && res.data && res.data.msg) println(res.data.msg);
-                    else if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
-                });
-            });
-            var refreshIpsBtn=document.getElementById('cfb-refresh-ips');
-            if (refreshIpsBtn){
-                refreshIpsBtn.addEventListener('click', function(e){
-                    e.preventDefault(); clearConsole(); showWait(true);
-                    println('Actualizando IPs del dominio…');
-                    refreshSummary(function(res){
-                        if (res && res.success) println('IPs actualizadas.');
-                    });
-                });
-            }
-        })();
-        </script>
-    <?php }
 
     /* ================== Verificación rápida (para settings) ================== */
 
