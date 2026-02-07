@@ -3,7 +3,7 @@
  * Plugin Name: CF Football Bypass
  * Plugin URI: https://github.com/dcarrero/cf-football-bypass
  * Description: Opera con Cloudflare para alternar Proxy (ON/CDN) y DNS Only (OFF) según bloqueos, con caché persistente de registros y acciones AJAX. UI separada: Operación y Configuración.
- * Version: 1.8.0
+ * Version: 1.8.1
  * Author: David Carrero Fernandez-Baillo
  * Author URI: https://carrero.es
  * License: GPL v2 or later
@@ -471,7 +471,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         }
 
         // Registrar script handle para asociar inline scripts
-        wp_register_script('cfbcolorvivo-admin', false, array(), '1.8.0', true);
+        wp_register_script('cfbcolorvivo-admin', false, array(), '1.8.1', true);
         wp_enqueue_script('cfbcolorvivo-admin');
 
         // Pasar datos al JavaScript
@@ -1578,7 +1578,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         }
 
         $url = apply_filters('cfbcolorvivo_remote_data_json_url','https://hayahora.futbol/estado/data.json');
-        $resp = wp_remote_get($url, ['timeout'=>25,'redirection'=>5,'user-agent'=>'CFBCV/1.8.0; '.home_url('/')]);
+        $resp = wp_remote_get($url, ['timeout'=>25,'redirection'=>5,'user-agent'=>'CFBCV/1.8.1; '.home_url('/')]);
         $remote_ok=false; $remote_body=null; $last_remote=null;
         if (!is_wp_error($resp) && wp_remote_retrieve_response_code($resp)===200){
             $remote_body = wp_remote_retrieve_body($resp);
