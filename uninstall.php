@@ -30,31 +30,31 @@ if (!function_exists('WP_Filesystem')) {
 WP_Filesystem();
 
 // Eliminar directorio de logs
-$log_dir = WP_CONTENT_DIR . '/uploads/cfbcolorvivo-logs';
-if (is_dir($log_dir)) {
-    $files = glob($log_dir . '/*');
-    if (is_array($files)) {
-        foreach ($files as $file) {
-            if (is_file($file)) {
-                wp_delete_file($file);
+$cfbcolorvivo_log_dir = WP_CONTENT_DIR . '/uploads/cfbcolorvivo-logs';
+if (is_dir($cfbcolorvivo_log_dir)) {
+    $cfbcolorvivo_files = glob($cfbcolorvivo_log_dir . '/*');
+    if (is_array($cfbcolorvivo_files)) {
+        foreach ($cfbcolorvivo_files as $cfbcolorvivo_file) {
+            if (is_file($cfbcolorvivo_file)) {
+                wp_delete_file($cfbcolorvivo_file);
             }
         }
     }
-    $wp_filesystem->rmdir($log_dir);
+    $wp_filesystem->rmdir($cfbcolorvivo_log_dir);
 }
 
 // Eliminar directorio de datos locales
-$data_dir = WP_CONTENT_DIR . '/uploads/cfbcolorvivo';
-if (is_dir($data_dir)) {
-    $files = glob($data_dir . '/*');
-    if (is_array($files)) {
-        foreach ($files as $file) {
-            if (is_file($file)) {
-                wp_delete_file($file);
+$cfbcolorvivo_data_dir = WP_CONTENT_DIR . '/uploads/cfbcolorvivo';
+if (is_dir($cfbcolorvivo_data_dir)) {
+    $cfbcolorvivo_files = glob($cfbcolorvivo_data_dir . '/*');
+    if (is_array($cfbcolorvivo_files)) {
+        foreach ($cfbcolorvivo_files as $cfbcolorvivo_file) {
+            if (is_file($cfbcolorvivo_file)) {
+                wp_delete_file($cfbcolorvivo_file);
             }
         }
     }
-    $wp_filesystem->rmdir($data_dir);
+    $wp_filesystem->rmdir($cfbcolorvivo_data_dir);
 }
 
 // Limpiar cron
