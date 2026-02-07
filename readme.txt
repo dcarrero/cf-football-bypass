@@ -4,7 +4,7 @@ Tags: cloudflare, dns, football, bypass, ip-blocking
 Requires at least: 5.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.8.0
+Stable tag: 1.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: cf-football-bypass
@@ -172,6 +172,15 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 
 == Changelog ==
 
+= 1.8.1 =
+* SECURITY: External cron token comparison now uses hash_equals() to prevent timing attacks
+* PERFORMANCE: Log pruning throttled to once per day instead of on every log event
+* UX: Confirmation dialogs before destructive actions (Force OFF, Force ON, Reset)
+* UX: Action buttons are disabled during AJAX operations to prevent double-click
+* UX: Local environment detection with friendly warning on Operation page
+* CODE: Added uninstall.php for complete cleanup on plugin removal (WP_Filesystem)
+* CODE: Replaced deprecated current_time('timestamp') with time() (WP 5.3+)
+
 = 1.8.0 =
 * IMPROVEMENT: Changed all prefixes from cfb_ to cfbcolorvivo_ to avoid conflicts with other plugins
 * IMPROVEMENT: Changed all CSS/JS identifiers from cfb- to cfbcolorvivo- for uniqueness
@@ -220,6 +229,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * Integrated cron system
 
 == Upgrade Notice ==
+
+= 1.8.1 =
+Security and usability improvements: timing-safe token comparison, confirmation dialogs, anti double-click, local environment detection, and proper cleanup on uninstall.
 
 = 1.8.0 =
 Prefix update: All internal prefixes changed from cfb_ to cfbcolorvivo_ to avoid plugin conflicts. Settings will be migrated automatically if you have existing configuration.
