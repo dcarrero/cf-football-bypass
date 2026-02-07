@@ -2,7 +2,7 @@
 # This file is distributed under the GPL v2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: CF Football Bypass 1.6.0\n"
+"Project-Id-Version: CF Football Bypass 1.8.0\n"
 "Report-Msgid-Bugs-To: https://github.com/dcarrero/cf-football-bypass/issues\n"
 "POT-Creation-Date: 2024-01-22 00:00+0000\n"
 "MIME-Version: 1.0\n"
@@ -149,7 +149,7 @@ msgid "Guardar acciones en el registro (cron y manuales)"
 msgstr ""
 
 #: cf_football_bypass.php:737
-msgid "Los registros se guardan en wp-content/uploads/cfb-logs/ protegidos y se muestran en la pestaña Logs."
+msgid "Los registros se guardan en wp-content/uploads/cfbcolorvivo-logs/ protegidos y se muestran en la pestaña Logs."
 msgstr ""
 
 #: cf_football_bypass.php:744

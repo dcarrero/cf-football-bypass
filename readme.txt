@@ -1,257 +1,276 @@
 === CF Football Bypass ===
 Contributors: davidcarrero
-Tags: cloudflare, dns, football, bypass, laliga, ip-blocking
+Tags: cloudflare, dns, football, bypass, ip-blocking
 Requires at least: 5.0
-Tested up to: 6.8
+Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.7.0
+Stable tag: 1.8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: cf-football-bypass
 Domain Path: /languages
 
-Gestiona automaticamente la configuracion de Cloudflare durante los partidos de futbol para evitar bloqueos de IPs masivos.
+Automatically manages Cloudflare configuration during football matches to avoid mass IP blocks affecting legitimate websites in Spain.
 
 == Description ==
 
-CF Football Bypass es un plugin de WordPress creado por David Carrero Fernandez-Baillo para ayudar a sitios espanoles a capear los bloqueos masivos de IPs que ordena LaLiga durante los partidos de futbol. El proyecto es libre (GPLv2) y su codigo fuente esta disponible en GitHub: https://github.com/dcarrero/cf-football-bypass
+CF Football Bypass is a WordPress plugin created by David Carrero Fernandez-Baillo to help Spanish website owners protect their legitimate sites from collateral damage caused by mass IP blocks ordered during football matches. The project is open source (GPLv2) and available on GitHub: https://github.com/dcarrero/cf-football-bypass
 
-El plugin monitoriza automaticamente los eventos futbolisticos en Espana consultando hayahora.futbol y, en funcion del resultado, gestiona los registros DNS de Cloudflare para alternar entre modo proxied y DNS Only. Asi se evita que los visitantes legitimos caigan en los bloqueos judiciales dirigidos contra el futbol pirata.
+The plugin automatically monitors football events in Spain by querying hayahora.futbol and, based on the result, manages Cloudflare DNS records to toggle between Proxied and DNS Only modes. This prevents legitimate visitors from being affected by judicial blocks targeting pirate football streaming.
 
-= Problema que resuelve =
+= The Problem =
 
-En Espana, durante los partidos de futbol, se producen bloqueos masivos de IPs y rangos de IPs por ordenes judiciales para combatir el futbol pirata. Estos bloqueos afectan tambien a sitios web legitimos que nada tienen que ver con el futbol, causando perdidas de trafico y facturacion.
+In Spain, during football matches, mass IP blocks are enforced by judicial orders to combat pirate streaming. These blocks also affect legitimate websites that have nothing to do with football, causing traffic and revenue losses.
 
-= Solucion =
+= The Solution =
 
-Cuando se detecta que hay futbol:
-- Desactiva automaticamente el proxy de Cloudflare para los registros DNS seleccionados
-- Tu sitio web pasa a usar DNS Only, evitando las IPs de Cloudflare que pueden estar bloqueadas
-- Despues del tiempo configurado, reactiva automaticamente el proxy de Cloudflare
+When football is detected:
+- Automatically disables the Cloudflare proxy for selected DNS records
+- Your website switches to DNS Only mode, avoiding potentially blocked Cloudflare IPs
+- After the configured cooldown period, automatically re-enables the Cloudflare proxy
 
-= Caracteristicas principales =
+= Key Features =
 
-Automatizacion completa
-- Monitorizacion automatica cada X minutos (configurable 5-60 min)
-- Activacion/desactivacion automatica del bypass
-- Sistema de cron integrado en WordPress
+Full Automation
+- Automatic monitoring every X minutes (configurable 5-60 min)
+- Automatic bypass activation/deactivation
+- Integrated WordPress cron system
 
-Soporte dual de autenticacion Cloudflare
-- API Key Global (tradicional)
-- Token API con permisos especificos (mas seguro)
+Dual Cloudflare Authentication Support
+- Global API Key (traditional)
+- API Token with specific permissions (more secure)
 
-Control granular
-- Seleccion especifica de registros DNS (A, AAAA y CNAME)
-- Duracion configurable del bypass (60-600 minutos)
-- Intervalo personalizable tras desactivar Cloudflare antes de reintentar activarlo
-- Control manual para casos especiales
+Granular Control
+- Specific DNS record selection (A, AAAA, and CNAME)
+- Configurable bypass duration (60-600 minutes)
+- Customizable cooldown interval after disabling Cloudflare
+- Manual control for special cases
 
-Dashboard informativo
-- Estado actual del futbol en tiempo real
-- Ultima comprobacion realizada
-- Estado del bypass (activo/inactivo)
+Informative Dashboard
+- Real-time football status
+- Last check performed
+- Bypass status (active/inactive)
 
-Herramientas adicionales
-- Boton de test de conexion con Cloudflare
-- Comprobacion manual del estado de futbol
-- Botones de activacion/desactivacion manual
-- Logs detallados para debugging y auditoria (cron, acciones manuales)
-- Endpoint protegido para cron externo
+Additional Tools
+- Cloudflare connection test button
+- Manual football status check
+- Manual activation/deactivation buttons
+- Detailed logging for debugging and auditing
+- Protected endpoint for external cron
 
 == Installation ==
 
-1. Descarga e instalacion
-   - Descarga el archivo zip del plugin
-   - Descomprime (o sube la carpeta resultante) en `wp-content/plugins/cf-football-bypass/`
-   - Ve a tu panel de WordPress > Plugins > CF Football Bypass > Activar
+1. Download and Install
+   - Download the plugin zip file
+   - Extract (or upload the resulting folder) to `wp-content/plugins/cf-football-bypass/`
+   - Go to your WordPress dashboard > Plugins > CF Football Bypass > Activate
 
-2. Configuracion de Cloudflare
-   - Ve a Ajustes > CF Football Bypass
-   - Selecciona tu tipo de autenticacion (API Key Global o Token API)
-   - Introduce tus credenciales de Cloudflare
-   - Anade el Zone ID de tu dominio
+2. Cloudflare Configuration
+   - Go to Settings > CF Football Bypass
+   - Select your authentication type (Global API Key or API Token)
+   - Enter your Cloudflare credentials
+   - Add your domain's Zone ID
 
-3. Configuracion del plugin
-   - Establece el intervalo de comprobacion (recomendado: 15 minutos)
-   - Ajusta el intervalo tras desactivar Cloudflare (cooldown) si necesitas mas o menos tiempo (por defecto 60 minutos)
-   - Define la duracion del bypass (recomendado: 120 minutos)
-   - Haz clic en "Probar conexion y actualizar lista DNS"
-   - Selecciona los registros DNS que quieres gestionar
-   - Guarda la configuracion
+3. Plugin Configuration
+   - Set the check interval (recommended: 15 minutes)
+   - Adjust the cooldown interval after disabling Cloudflare (default: 60 minutes)
+   - Click "Test connection and load DNS"
+   - Select the DNS records you want to manage
+   - Save the configuration
 
-= Obtener credenciales de Cloudflare =
+= Getting Cloudflare Credentials =
 
-Para API Key Global:
-1. Ve a Cloudflare > Mi perfil > Tokens API
-2. En "API Keys", copia tu "Global API Key"
-3. Necesitaras tambien tu email de la cuenta
+For Global API Key:
+1. Go to Cloudflare > My Profile > API Tokens
+2. In "API Keys", copy your "Global API Key"
+3. You will also need your account email
 
-Para Token API (recomendado):
-1. Ve a Cloudflare > Mi perfil > Tokens API
-2. Haz clic en "Crear token"
-3. Usa la plantilla "Personalizado"
-4. Permisos necesarios:
-   - Zone:Read (para leer la informacion de zona)
-   - DNS:Read (para listar registros DNS)
-   - DNS:Edit (para modificar el estado del proxy)
+For API Token (recommended):
+1. Go to Cloudflare > My Profile > API Tokens
+2. Click "Create Token"
+3. Use the "Custom" template
+4. Required permissions:
+   - Zone:Read (to read zone information)
+   - DNS:Read (to list DNS records)
+   - DNS:Edit (to modify proxy status)
 
 == External Services ==
 
-Este plugin se conecta a los siguientes servicios externos:
+This plugin connects to the following external services:
 
 = hayahora.futbol =
-El plugin consulta periodicamente el endpoint https://hayahora.futbol/estado/data.json para obtener informacion sobre bloqueos de IPs activos durante eventos de futbol en Espana. Este servicio es gratuito y de codigo abierto.
+The plugin periodically queries the endpoint https://hayahora.futbol/estado/data.json to obtain information about active IP blocks during football events in Spain. This service is free and open source.
 - URL: https://hayahora.futbol/
-- Politica de privacidad: El servicio no recopila datos personales de los usuarios del plugin.
+- Privacy Policy: The service does not collect personal data from plugin users.
 
 = Cloudflare API =
-El plugin utiliza la API oficial de Cloudflare (https://api.cloudflare.com/client/v4/) para gestionar los registros DNS de tu zona. Requiere credenciales de API que tu proporcionas.
+The plugin uses the official Cloudflare API (https://api.cloudflare.com/client/v4/) to manage your zone's DNS records. It requires API credentials that you provide.
 - URL: https://api.cloudflare.com/
-- Terminos de servicio: https://www.cloudflare.com/terms/
-- Politica de privacidad: https://www.cloudflare.com/privacypolicy/
+- Terms of Service: https://www.cloudflare.com/terms/
+- Privacy Policy: https://www.cloudflare.com/privacypolicy/
 
-= Enlaces de afiliados =
-La pagina de operacion del plugin incluye enlaces de afiliado claramente marcados con "(aff)" hacia servicios VPN y herramientas de seguridad. Estos enlaces son opcionales y no afectan la funcionalidad del plugin.
+= Affiliate Links =
+The plugin's operation page includes affiliate links clearly marked with "(aff)" to VPN services and security tools. These links are optional and do not affect the plugin's functionality.
 
 == Frequently Asked Questions ==
 
-= Es seguro usar este plugin? =
-Si. El plugin solo modifica el estado del proxy de Cloudflare (Proxied/DNS Only) para los registros que selecciones. No elimina ni modifica el contenido de los registros DNS.
+= Is it safe to use this plugin? =
+Yes. The plugin only modifies the proxy status of Cloudflare (Proxied/DNS Only) for the records you select. It does not delete or modify the content of DNS records.
 
-= Que pasa si falla la deteccion de futbol? =
-En caso de error al consultar hayahora.futbol, el plugin asume que NO hay futbol por seguridad, manteniendo el estado actual sin realizar cambios.
+= What happens if football detection fails? =
+In case of an error querying hayahora.futbol, the plugin assumes there is NO football for safety, maintaining the current state without making changes.
 
-= Puedo usar esto con cualquier proveedor DNS? =
-No, este plugin esta disenado especificamente para trabajar con Cloudflare. Necesitas que tus DNS esten gestionados por Cloudflare.
+= Can I use this with any DNS provider? =
+No, this plugin is specifically designed to work with Cloudflare. Your DNS must be managed by Cloudflare.
 
-= Afecta al SEO de mi web? =
-No deberia afectar negativamente. El plugin solo cambia temporalmente si tu sitio pasa por el proxy de Cloudflare o no. El contenido y las URLs permanecen iguales.
+= Does it affect my website's SEO? =
+It should not negatively affect SEO. The plugin only temporarily changes whether your site goes through the Cloudflare proxy or not. Content and URLs remain the same.
 
-= Que ocurre si desactivo el plugin durante un bypass activo? =
-Al desactivar el plugin, se ejecuta automaticamente una funcion que reactiva el proxy de Cloudflare para todos los registros seleccionados.
+= What happens if I deactivate the plugin during an active bypass? =
+When deactivating the plugin, a function automatically runs that re-enables the Cloudflare proxy for all selected records.
 
-= Puedo controlar manualmente el bypass? =
-Si, el plugin incluye botones para:
-- Comprobar manualmente el estado de futbol
-- Forzar la activacion/desactivacion del bypass
-- Test de conexion con Cloudflare
+= Can I manually control the bypass? =
+Yes, the plugin includes buttons to:
+- Manually check football status
+- Force bypass activation/deactivation
+- Test Cloudflare connection
 
-= Que tipos de registro DNS soporta? =
-Actualmente soporta registros tipo A y CNAME, que son los mas comunes y los que se ven afectados por los bloqueos de IP.
+= What DNS record types are supported? =
+Currently supports A, AAAA, and CNAME records, which are the most common and affected by IP blocks.
 
-= Como funciona el sistema de cron? =
-Consulta la seccion "Cron y automatizacion" para ver como funciona wp_cron, el endpoint externo y las recomendaciones de configuracion.
+= How does the cron system work? =
+See the "Cron and Automation" section for details on wp_cron, external endpoint, and configuration recommendations.
 
-== Cron y automatizacion ==
+== Cron and Automation ==
 
-= Como funciona el sistema de cron? =
-El plugin utiliza el cron interno de WordPress (wp_cron) que se ejecuta cuando hay visitas al sitio web. Normalmente esto es suficiente para la mayoria de sitios.
+= How does the cron system work? =
+The plugin uses WordPress internal cron (wp_cron) which runs when there are visits to the website. This is usually sufficient for most sites.
 
-= Que hago si mi sitio tiene poco trafico y el cron no se ejecuta regularmente? =
-Ve a Ajustes > CF Football Bypass y copia el token del apartado "Cron externo". Con ese token puedes programar un cron real del servidor:
+= What if my site has low traffic and cron doesn't run regularly? =
+Go to Settings > CF Football Bypass and copy the token from the "External cron" section. With that token you can set up a real server cron:
 
-*/15 * * * * curl -s "https://tudominio.com/wp-cron.php?cfb_cron=1&token=TOKEN_AQUI" > /dev/null 2>&1
+*/15 * * * * curl -s "https://yourdomain.com/wp-cron.php?cfbcolorvivo_cron=1&token=YOUR_TOKEN_HERE" > /dev/null 2>&1
 
-Puedes regenerar el token borrando el campo y guardando los ajustes (se genera uno nuevo). Este endpoint solo ejecuta la comprobacion del plugin, sin depender de visitas.
+You can regenerate the token by clearing the field and saving settings (a new one is generated). This endpoint only runs the plugin check, without depending on visits.
 
-= Que es el "Intervalo tras desactivar Cloudflare"? =
-Es el tiempo de espera (por defecto 60 minutos) que el plugin respeta antes de volver a revisar si puede activar Cloudflare tras haber detectado un bloqueo. Durante este periodo el proxy se mantiene en "DNS Only" aunque el JSON deje de marcar el dominio, evitando ciclos de activacion/desactivacion rapidos.
+= What is the "Cooldown after disabling Cloudflare"? =
+This is the waiting time (default 60 minutes) that the plugin respects before checking if Cloudflare can be re-enabled after detecting a block. During this period, the proxy remains in "DNS Only" mode even if the JSON stops marking the domain, avoiding rapid activation/deactivation cycles.
 
-= Como verifico que el cron funciona correctamente? =
-En la pestaña Operacion pulsa "Diagnostico WP-Cron" para ver proxima ejecucion y el resultado del ultimo check. Tambien puedes revisar los logs integrados.
+= How do I verify that cron is working correctly? =
+In the Operation tab, click "WP-Cron Diagnostics" to see the next execution and the result of the last check. You can also review the integrated logs.
 
-== Logs y auditoria ==
+== Logs and Auditing ==
 
-= Donde veo el historico de acciones? =
-En el menu CF Football Bypass > Logs. Muestra las ultimas ejecuciones automaticas (cron interno o externo) y las acciones manuales con fecha, detalle y usuario.
+= Where can I see the action history? =
+In the CF Football Bypass > Logs menu. It shows the latest automatic executions (internal or external cron) and manual actions with date, detail, and user.
 
-= Puedo desactivar los logs? =
-Si. En Ajustes > CF Football Bypass puedes desactivar el registro o ajustar los dias de retencion (minimo 1). Los logs se guardan en `wp-content/uploads/cfb-logs/cfb-actions.log` protegidos con .htaccess.
+= Can I disable logging? =
+Yes. In Settings > CF Football Bypass you can disable logging or adjust retention days (minimum 1). Logs are stored in `wp-content/uploads/cfbcolorvivo-logs/cfbcolorvivo-actions.log` protected with .htaccess.
 
-= Como verifico que el cron funciona correctamente? =
-Puedes comprobar si esta programado en Herramientas > Salud del sitio > Info > Eventos programados, buscando el evento 'cfb_check_football_status'. Tambien puedes revisar los logs de error de WordPress donde el plugin registra todas sus acciones.
+= How do I verify that cron is working correctly? =
+You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events, looking for the 'cfbcolorvivo_check_football_status' event. You can also review WordPress error logs where the plugin records all its actions.
 
 == Changelog ==
 
+= 1.8.0 =
+* IMPROVEMENT: Changed all prefixes from cfb_ to cfbcolorvivo_ to avoid conflicts with other plugins
+* IMPROVEMENT: Changed all CSS/JS identifiers from cfb- to cfbcolorvivo- for uniqueness
+* CODE: Settings option renamed to cfbcolorvivo_settings
+* CODE: Cron hook renamed to cfbcolorvivo_check_football_status
+* CODE: Log directory renamed to cfbcolorvivo-logs
+* CODE: All AJAX actions, transients, and filters updated with new prefix
+
+= 1.7.1 =
+* FIX: Fixed critical bug in configuration checkboxes that prevented unchecking options once activated
+* FIX: "Force Proxy OFF during football" option can now be properly disabled
+* FIX: "Action logging" option can now be properly disabled
+* FIX: Improved code compliance with WordPress.org plugin guidelines
+
 = 1.7.0 =
-* MEJORA: Scripts JavaScript ahora usan wp_enqueue_script() y wp_add_inline_script() segun las directrices del directorio de WordPress.org
-* MEJORA: Eliminados todos los bloques <script> inline del codigo PHP
-* MEJORA: Datos dinamicos pasados via wp_localize_script() para mejor separacion de codigo
-* MEJORA: Hook admin_enqueue_scripts implementado correctamente con filtrado por pagina
-* CODIGO: Refactorizacion completa del sistema de assets de admin
+* IMPROVEMENT: JavaScript now uses wp_enqueue_script() and wp_add_inline_script() per WordPress.org directory guidelines
+* IMPROVEMENT: Removed all inline script blocks from PHP code
+* IMPROVEMENT: Dynamic data passed via wp_localize_script() for better code separation
+* IMPROVEMENT: admin_enqueue_scripts hook properly implemented with page filtering
+* CODE: Complete refactoring of admin assets system
 
 = 1.6.0 =
-* SEGURIDAD: Archivo de logs movido a wp-content/uploads/cfb-logs/ con proteccion .htaccess
-* SEGURIDAD: Anonimizacion de IPs en logs para cumplimiento GDPR
-* SEGURIDAD: Eliminados operadores de supresion de errores (@) por verificaciones explicitas
-* SEGURIDAD: Anadidos archivos index.php para prevenir listado de directorios
-* MEJORA: Soporte completo de internacionalizacion (i18n) con text domain cf-football-bypass
-* MEJORA: Header del plugin actualizado con todos los campos requeridos por WordPress.org
-* MEJORA: Creacion automatica de directorio de logs con proteccion
-* MEJORA: Mejor manejo de errores en escritura de archivos
-* FIX: Sincronizacion de version entre plugin header y readme.txt
+* SECURITY: Log file moved to wp-content/uploads/cfbcolorvivo-logs/ with .htaccess protection
+* SECURITY: IP anonymization in logs for GDPR compliance
+* SECURITY: Removed error suppression operators (@) with explicit checks
+* SECURITY: Added index.php files to prevent directory listing
+* IMPROVEMENT: Full internationalization (i18n) support with cf-football-bypass text domain
+* IMPROVEMENT: Plugin header updated with all fields required by WordPress.org
+* IMPROVEMENT: Automatic log directory creation with protection
+* IMPROVEMENT: Better error handling for file writing
+* FIX: Version sync between plugin header and readme.txt
 
 = 1.0.1 =
-* Anadido soporte para Token API de Cloudflare
-* Mejorado el boton de control manual con confirmacion
-* Sidebar con enlaces recomendados
-* Correccion de bugs menores
-* Mejor manejo de errores y logs
+* Added Cloudflare API Token support
+* Improved manual control button with confirmation
+* Sidebar with recommended links
+* Minor bug fixes
+* Better error handling and logging
 
 = 1.0.0 =
-* Version inicial
-* Monitorizacion automatica de hayahora.futbol
-* Gestion automatica de registros DNS de Cloudflare
-* Soporte para API Key Global
-* Dashboard de administracion
-* Sistema de cron integrado
+* Initial version
+* Automatic hayahora.futbol monitoring
+* Automatic Cloudflare DNS record management
+* Global API Key support
+* Admin dashboard
+* Integrated cron system
 
 == Upgrade Notice ==
 
+= 1.8.0 =
+Prefix update: All internal prefixes changed from cfb_ to cfbcolorvivo_ to avoid plugin conflicts. Settings will be migrated automatically if you have existing configuration.
+
+= 1.7.1 =
+Important fix: Configuration checkboxes now work correctly. Recommended update if you use the "Force Proxy OFF during football" option.
+
 = 1.7.0 =
-Cumplimiento de directrices WordPress.org: JavaScript ahora se carga correctamente usando wp_enqueue_script() y wp_add_inline_script() en lugar de bloques script inline.
+WordPress.org guidelines compliance: JavaScript now loads correctly using wp_enqueue_script() and wp_add_inline_script() instead of inline script blocks.
 
 = 1.6.0 =
-Version preparada para el directorio de WordPress.org. Incluye mejoras de seguridad importantes: logs protegidos, IPs anonimizadas, y soporte de traducciones.
+Version prepared for WordPress.org directory. Includes important security improvements: protected logs, anonymized IPs, and translation support.
 
 = 1.0.1 =
-Esta version anade soporte para Token API de Cloudflare (mas seguro que API Key Global) y mejora el control manual del bypass con confirmaciones de seguridad.
+This version adds Cloudflare API Token support (more secure than Global API Key) and improves manual bypass control with security confirmations.
 
-== Requisitos del servidor ==
+== Server Requirements ==
 
-- WordPress 5.0 o superior
-- PHP 7.4 o superior  
-- Extensiones PHP: curl, json
-- Permisos: Capacidad de hacer peticiones HTTP salientes
-- Cron: Sistema de cron de WordPress funcional
+- WordPress 5.0 or higher
+- PHP 7.4 or higher
+- PHP Extensions: curl, json
+- Permissions: Ability to make outbound HTTP requests
+- Cron: Functional WordPress cron system
 
-== Soporte ==
+== Support ==
 
-- Autor: David Carrero Fernandez-Baillo
-- Web: https://carrero.es
-- Contacto: https://carrero.es/contacto/
+- Author: David Carrero Fernandez-Baillo
+- Website: https://carrero.es
+- Contact: https://carrero.es/contacto/
 
-Si necesitas ayuda, escribe por mensaje directo en X o utiliza el formulario de contacto. Las issues y mejoras tambien son bienvenidas en el repositorio: https://github.com/dcarrero/cf-football-bypass
+If you need help, send a direct message on X or use the contact form. Issues and improvements are also welcome in the repository: https://github.com/dcarrero/cf-football-bypass
 
-Este plugin nace de la necesidad real de proteger sitios web legitimos ante los bloqueos masivos que afectan a la industria digital espanola durante eventos deportivos.
+This plugin was born from the real need to protect legitimate websites from the mass blocks affecting the Spanish digital industry during sporting events.
 
-== Casos de uso especificos ==
+== Specific Use Cases ==
 
-Sitios de alto trafico
-- Permite seleccionar solo registros criticos (www, dominio raiz)
-- Mantiene otros servicios (mail, ftp, etc.) siempre proxied
-- Minimiza el impacto en CDN y cache
+High Traffic Sites
+- Allows selecting only critical records (www, root domain)
+- Keeps other services (mail, ftp, etc.) always proxied
+- Minimizes impact on CDN and cache
 
-Sitios con subdominios multiples
-- Control granular por subdominio
-- Diferentes estrategias para diferentes servicios
-- Flexibilidad total en la configuracion
+Sites with Multiple Subdomains
+- Granular control per subdomain
+- Different strategies for different services
+- Total configuration flexibility
 
-Emergencias y override manual
-- Botones de control manual para situaciones especiales
-- No depende unicamente de la deteccion automatica
-- Permite reaccion rapida ante fallos
+Emergencies and Manual Override
+- Manual control buttons for special situations
+- Does not depend solely on automatic detection
+- Allows quick reaction to failures
 
-== Licencia ==
+== License ==
 
-GPLv2 o posterior. Eres libre de usar, modificar y distribuir este plugin segun los terminos de la GPL.
+GPLv2 or later. You are free to use, modify, and distribute this plugin under the terms of the GPL.
