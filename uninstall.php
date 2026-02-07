@@ -20,6 +20,7 @@ delete_transient('cfbcolorvivo_settings_notice_ok');
 delete_transient('cfbcolorvivo_settings_notice_err');
 delete_transient('cfbcolorvivo_domain_ips_cache');
 delete_transient('cfbcolorvivo_prune_throttle');
+delete_transient('cfbcolorvivo_server_outgoing_ips');
 
 // Inicializar WP_Filesystem
 global $wp_filesystem;
