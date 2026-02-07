@@ -3,7 +3,7 @@
  * Plugin Name: CF Football Bypass
  * Plugin URI: https://github.com/dcarrero/cf-football-bypass
  * Description: Opera con Cloudflare para alternar Proxy (ON/CDN) y DNS Only (OFF) según bloqueos, con caché persistente de registros y acciones AJAX. UI separada: Operación y Configuración.
- * Version: 1.8.2
+ * Version: 1.8.5
  * Author: David Carrero Fernandez-Baillo
  * Author URI: https://carrero.es
  * License: GPL v2 or later
@@ -170,10 +170,11 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
     private function get_default_settings($force_new_token=false){
         $secret = $force_new_token ? $this->generate_cron_secret() : '';
         return [
-            'cloudflare_email'    => '',
-            'cloudflare_api_key'  => '',
-            'cloudflare_zone_id'  => '',
-            'auth_type'           => 'global',
+            'cloudflare_email'      => '',
+            'cloudflare_api_key'   => '',
+            'cloudflare_zone_id'   => '',
+            'cloudflare_account_id'=> '',
+            'auth_type'            => 'global',
             'check_interval'      => 15,
             'selected_records'    => [],
             'dns_records_cache'   => [],
@@ -386,7 +387,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         $defaults = $this->get_default_settings();
         foreach ($defaults as $k=>$v){ if (!array_key_exists($k,$opt)) { $opt[$k]=$v; $changed=true; } }
 
-        $auth = in_array($opt['auth_type'], ['global','token'], true) ? $opt['auth_type'] : 'global';
+        $auth = in_array($opt['auth_type'], ['global','token','account_token'], true) ? $opt['auth_type'] : 'global';
         if ($auth !== $opt['auth_type']) { $opt['auth_type']='global'; $changed=true; }
 
         $mins = max(5, min(60, intval($opt['check_interval'])));
@@ -497,7 +498,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         }
 
         // Registrar script handle para asociar inline scripts
-        wp_register_script('cfbcolorvivo-admin', false, array(), '1.8.2', true);
+        wp_register_script('cfbcolorvivo-admin', false, array(), '1.8.5', true);
         wp_enqueue_script('cfbcolorvivo-admin');
 
         // Pasar datos al JavaScript
@@ -706,8 +707,13 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         return "document.addEventListener('DOMContentLoaded',function(){
             var sel=document.getElementById('cfbcolorvivo_auth_type');
             var email=document.getElementById('cfbcolorvivo_email_input');
-            var row=email?email.closest('tr'):null;
-            function t(){ if(row) row.style.display=(sel.value==='global')?'':'none'; }
+            var emailRow=email?email.closest('tr'):null;
+            var accId=document.getElementById('cfbcolorvivo_account_id_input');
+            var accRow=accId?accId.closest('tr'):null;
+            function t(){
+                if(emailRow) emailRow.style.display=(sel.value==='global')?'':'none';
+                if(accRow) accRow.style.display=(sel.value==='account_token')?'':'none';
+            }
             if(sel){ sel.addEventListener('change',t); t(); }
         });";
     }
@@ -723,6 +729,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         add_settings_field('cloudflare_email', __('Email (sólo Global API Key)','cf-football-bypass'), [$this,'email_render'], 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section');
         add_settings_field('cloudflare_api_key', __('API Key Global o Token','cf-football-bypass'), [$this,'api_key_render'], 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section');
         add_settings_field('cloudflare_zone_id', __('Zone ID','cf-football-bypass'), [$this,'zone_id_render'], 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section');
+        add_settings_field('cloudflare_account_id', __('Account ID (sólo Account Token)','cf-football-bypass'), [$this,'account_id_render'], 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section');
         add_settings_field('server_outgoing_ip', __('IP de salida del servidor','cf-football-bypass'), [$this,'server_outgoing_ip_render'], 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section');
 
         add_settings_section('cfbcolorvivo_plugin_section', __('Ajustes del plugin','cf-football-bypass'), '__return_false', 'cfbcolorvivo_settings_page');
@@ -746,11 +753,12 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         $is_settings_form = !wp_doing_ajax() && isset($_POST['option_page']) && sanitize_text_field(wp_unslash($_POST['option_page']))==='cfbcolorvivo_settings_group';
 
         // Campos de credenciales / core
-        $san['cloudflare_email']   = isset($input['cloudflare_email'])   ? sanitize_email($input['cloudflare_email'])           : ($existing['cloudflare_email']   ?? '');
-        $san['cloudflare_api_key'] = isset($input['cloudflare_api_key']) ? sanitize_text_field($input['cloudflare_api_key'])    : ($existing['cloudflare_api_key'] ?? '');
-        $san['cloudflare_zone_id'] = isset($input['cloudflare_zone_id']) ? sanitize_text_field($input['cloudflare_zone_id'])    : ($existing['cloudflare_zone_id'] ?? '');
+        $san['cloudflare_email']      = isset($input['cloudflare_email'])      ? sanitize_email($input['cloudflare_email'])           : ($existing['cloudflare_email']      ?? '');
+        $san['cloudflare_api_key']    = isset($input['cloudflare_api_key'])    ? sanitize_text_field($input['cloudflare_api_key'])    : ($existing['cloudflare_api_key']    ?? '');
+        $san['cloudflare_zone_id']    = isset($input['cloudflare_zone_id'])    ? sanitize_text_field($input['cloudflare_zone_id'])    : ($existing['cloudflare_zone_id']    ?? '');
+        $san['cloudflare_account_id'] = isset($input['cloudflare_account_id']) ? sanitize_text_field($input['cloudflare_account_id']) : ($existing['cloudflare_account_id'] ?? '');
         $auth = isset($input['auth_type']) ? sanitize_text_field($input['auth_type']) : ($existing['auth_type'] ?? 'global');
-        $san['auth_type'] = in_array($auth, ['global','token'], true) ? $auth : 'global';
+        $san['auth_type'] = in_array($auth, ['global','token','account_token'], true) ? $auth : 'global';
 
         $mins_in = isset($input['check_interval']) ? intval($input['check_interval']) : ($existing['check_interval'] ?? 15);
         $san['check_interval'] = max(5, min(60, $mins_in));
@@ -929,10 +937,11 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
     public function auth_type_render(){
         $s = $this->get_settings(); ?>
         <select name="<?php echo esc_attr($this->option_name); ?>[auth_type]" id="cfbcolorvivo_auth_type">
-            <option value="global" <?php selected($s['auth_type'],'global'); ?>>Global API Key</option>
-            <option value="token"  <?php selected($s['auth_type'],'token');  ?>>API Token (Bearer)</option>
+            <option value="global"        <?php selected($s['auth_type'],'global'); ?>>Global API Key</option>
+            <option value="token"         <?php selected($s['auth_type'],'token');  ?>>API Token de usuario (Bearer)</option>
+            <option value="account_token" <?php selected($s['auth_type'],'account_token'); ?>>API Token de cuenta (Bearer)</option>
         </select>
-        <p class="description">Global API Key requiere email; API Token no. Permisos mínimos: Zone:Read, DNS:Read, DNS:Edit.</p>
+        <p class="description">Global API Key requiere email. Los tokens de usuario están en Mi Perfil. Los tokens de cuenta están en Gestionar cuenta &gt; Account API Tokens (requiere Super Administrator). Permisos mínimos: Zone:Read, DNS:Read, DNS:Edit.</p>
         <?php
     }
     public function email_render(){
@@ -949,6 +958,12 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
     public function zone_id_render(){
         $s=$this->get_settings(); ?>
         <input type="text" name="<?php echo esc_attr($this->option_name); ?>[cloudflare_zone_id]" value="<?php echo esc_attr($s['cloudflare_zone_id']); ?>" class="regular-text" />
+        <?php
+    }
+    public function account_id_render(){
+        $s=$this->get_settings(); ?>
+        <input type="text" name="<?php echo esc_attr($this->option_name); ?>[cloudflare_account_id]" value="<?php echo esc_attr($s['cloudflare_account_id'] ?? ''); ?>" class="regular-text" id="cfbcolorvivo_account_id_input" />
+        <p class="description"><?php esc_html_e('Obligatorio solo para tokens de cuenta. Lo encuentras en la URL del dashboard de Cloudflare: dash.cloudflare.com/ACCOUNT_ID', 'cf-football-bypass'); ?></p>
         <?php
     }
     public function server_outgoing_ip_render(){
@@ -1082,7 +1097,8 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         // Columna izquierda (principal)
         echo '<div class="cfbcolorvivo-main" style="flex:1;min-width:0;">';
 
-        echo '<p>Zona: <code>'.esc_html($this->mask($s['cloudflare_zone_id'])).'</code> · Auth: <strong>'.($s['auth_type']==='token'?'Token':'Global Key').'</strong> · ';
+        $auth_label = ['global'=>'Global Key','token'=>'Token usuario','account_token'=>'Token cuenta'];
+        echo '<p>Zona: <code>'.esc_html($this->mask($s['cloudflare_zone_id'])).'</code> · Auth: <strong>'.esc_html($auth_label[$s['auth_type']] ?? $s['auth_type']).'</strong> · ';
         echo 'Dominio: <strong>'.esc_html($domain).'</strong> — <a href="'.esc_url($check_url).'" target="_blank" rel="noopener">Abrir comprobador</a></p>';
 
         echo '<h2 class="title">Registros DNS en caché</h2>';
@@ -1207,10 +1223,26 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         if (empty($settings['cloudflare_api_key'])) { $this->trace($trace, 'Falta API Key/Token.'); return false; }
         if (empty($settings['cloudflare_zone_id'])) { $this->trace($trace, 'Falta Zone ID.'); return false; }
         if ($settings['auth_type']==='global' && empty($settings['cloudflare_email'])) { $this->trace($trace, 'Falta email para Global API Key.'); return false; }
+        if ($settings['auth_type']==='account_token' && empty($settings['cloudflare_account_id'])) { $this->trace($trace, 'Falta Account ID para token de cuenta.'); return false; }
 
         $headers = $this->api_headers($settings);
 
-        if ($settings['auth_type']==='token') {
+        if ($settings['auth_type']==='account_token') {
+            $url = 'https://api.cloudflare.com/client/v4/accounts/'.rawurlencode($settings['cloudflare_account_id']).'/tokens/verify';
+            $this->trace($trace, 'GET '.$url);
+            $r = wp_remote_get($url, ['headers'=>$headers,'timeout'=>20]);
+            if (is_wp_error($r)) { $this->trace($trace, 'WP_Error verify: '.$r->get_error_message()); return false; }
+            $code = wp_remote_retrieve_response_code($r);
+            $body = wp_remote_retrieve_body($r);
+            $json = json_decode($body, true);
+            $cfRay = wp_remote_retrieve_header($r,'cf-ray');
+            $this->trace($trace, 'verify HTTP '.$code.' success='.((!empty($json['success']))?'true':'false').' cf-ray='.($cfRay?:'—'));
+            if ($code!==200 || empty($json['success'])) {
+                $err = isset($json['errors'][0]['message']) ? $json['errors'][0]['message'] : 'verify failed';
+                $this->trace($trace, 'Error: '.$err);
+                return false;
+            }
+        } elseif ($settings['auth_type']==='token') {
             $url = 'https://api.cloudflare.com/client/v4/user/tokens/verify';
             $this->trace($trace, 'GET '.$url);
             $r = wp_remote_get($url, ['headers'=>$headers,'timeout'=>20]);
@@ -1621,7 +1653,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         }
 
         $url = apply_filters('cfbcolorvivo_remote_data_json_url','https://hayahora.futbol/estado/data.json');
-        $resp = wp_remote_get($url, ['timeout'=>25,'redirection'=>5,'user-agent'=>'CFBCV/1.8.2; '.home_url('/')]);
+        $resp = wp_remote_get($url, ['timeout'=>25,'redirection'=>5,'user-agent'=>'CFBCV/1.8.5; '.home_url('/')]);
         $remote_ok=false; $remote_body=null; $last_remote=null;
         if (!is_wp_error($resp) && wp_remote_retrieve_response_code($resp)===200){
             $remote_body = wp_remote_retrieve_body($resp);
@@ -1793,12 +1825,23 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
 
         $s=$this->get_settings();
         $log=[];
-        $this->trace($log, 'Auth: '.($s['auth_type']==='token'?'Token':'Global').' | Email: '.($s['auth_type']==='global'?$s['cloudflare_email']:'—'));
+        $auth_labels = ['global'=>'Global API Key','token'=>'Token de usuario','account_token'=>'Token de cuenta'];
+        $this->trace($log, 'Auth: '.($auth_labels[$s['auth_type']] ?? $s['auth_type']).' | Email: '.($s['auth_type']==='global'?$s['cloudflare_email']:'—').($s['auth_type']==='account_token'?' | Account: '.$this->mask($s['cloudflare_account_id'] ?? ''):''));
         $this->trace($log, 'Zone ID: '.$this->mask($s['cloudflare_zone_id']));
 
         $headers=$this->api_headers($s);
 
-        if ($s['auth_type']==='token'){
+        if ($s['auth_type']==='account_token'){
+            if (empty($s['cloudflare_account_id'])) wp_send_json_error(['message'=>'Falta Account ID para token de cuenta.','log'=>$log]);
+            $url='https://api.cloudflare.com/client/v4/accounts/'.rawurlencode($s['cloudflare_account_id']).'/tokens/verify';
+            $this->trace($log,'GET '.$url);
+            $r=wp_remote_get($url,['headers'=>$headers,'timeout'=>20]);
+            if (is_wp_error($r)) wp_send_json_error(['message'=>'Error verificando token de cuenta: '.$r->get_error_message(),'log'=>$log]);
+            $code=wp_remote_retrieve_response_code($r); $body=wp_remote_retrieve_body($r); $json=json_decode($body,true);
+            $cfRay=wp_remote_retrieve_header($r,'cf-ray');
+            $this->trace($log,'HTTP '.$code.' verify='.(is_array($json)&&!empty($json['success'])?'true':'false').' cf-ray='.($cfRay?:'—'));
+            if ($code!==200 || empty($json['success'])) wp_send_json_error(['message'=>'Token de cuenta inválido o sin permisos (verify).','log'=>$log,'http'=>$code,'raw'=>substr((string)$body,0,800)]);
+        } elseif ($s['auth_type']==='token'){
             $url='https://api.cloudflare.com/client/v4/user/tokens/verify';
             $this->trace($log,'GET '.$url);
             $r=wp_remote_get($url,['headers'=>$headers,'timeout'=>20]);

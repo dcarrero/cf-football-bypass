@@ -4,7 +4,7 @@ Tags: cloudflare, dns, football, bypass, ip-blocking
 Requires at least: 5.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.8.2
+Stable tag: 1.8.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: cf-football-bypass
@@ -172,6 +172,12 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 
 == Changelog ==
 
+= 1.8.5 =
+* NEW: Support for Cloudflare Account-owned API Tokens (in addition to User API Tokens and Global API Key)
+* NEW: Account ID field shown when Account Token is selected
+* UX: Auth type selector now offers three options: Global API Key, User Token, Account Token
+* UX: Email and Account ID fields show/hide dynamically based on selected auth type
+
 = 1.8.2 =
 * NEW: Server outgoing IP detection shown in Settings to help restrict Cloudflare API Token by IP
 * UX: IP is cached for 1 hour and detected from multiple sources for reliability
@@ -233,6 +239,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * Integrated cron system
 
 == Upgrade Notice ==
+
+= 1.8.5 =
+New: Support for Cloudflare Account-owned API Tokens. You can now use tokens from Manage Account > Account API Tokens in addition to user tokens and Global API Key.
 
 = 1.8.2 =
 New: Shows server outgoing IP in Settings so you can restrict your Cloudflare API Token to that IP for extra security.
