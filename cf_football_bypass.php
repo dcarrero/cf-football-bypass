@@ -3,7 +3,7 @@
  * Plugin Name: CF Football Bypass
  * Plugin URI: https://github.com/dcarrero/cf-football-bypass
  * Description: Opera con Cloudflare para alternar Proxy (ON/CDN) y DNS Only (OFF) según bloqueos, con caché persistente de registros y acciones AJAX. UI separada: Operación y Configuración.
- * Version: 1.8.1
+ * Version: 1.8.2
  * Author: David Carrero Fernandez-Baillo
  * Author URI: https://carrero.es
  * License: GPL v2 or later
@@ -107,6 +107,32 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         if (in_array(strtolower($domain), $local, true)) return true;
         if (preg_match('/\.(local|test|ddev\.site|lndo\.site|wp\.lan)$/i', $domain)) return true;
         return false;
+    }
+    private function get_server_outgoing_ips(){
+        $cache_key = 'cfbcolorvivo_server_outgoing_ips';
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) return $cached;
+
+        $services = [
+            'https://api.ipify.org',
+            'https://checkip.amazonaws.com',
+            'https://icanhazip.com',
+        ];
+        $ips = [];
+        foreach ($services as $url) {
+            $r = wp_remote_get($url, ['timeout' => 10, 'sslverify' => true]);
+            if (!is_wp_error($r) && wp_remote_retrieve_response_code($r) === 200) {
+                $ip = trim(wp_remote_retrieve_body($r));
+                if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                    $ips[] = $ip;
+                }
+            }
+        }
+        $ips = array_values(array_unique($ips));
+        if (!empty($ips)) {
+            set_transient($cache_key, $ips, HOUR_IN_SECONDS);
+        }
+        return $ips;
     }
     private function is_assoc($arr){
         if (!is_array($arr)) return false;
@@ -471,7 +497,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         }
 
         // Registrar script handle para asociar inline scripts
-        wp_register_script('cfbcolorvivo-admin', false, array(), '1.8.1', true);
+        wp_register_script('cfbcolorvivo-admin', false, array(), '1.8.2', true);
         wp_enqueue_script('cfbcolorvivo-admin');
 
         // Pasar datos al JavaScript
@@ -697,6 +723,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         add_settings_field('cloudflare_email', __('Email (sólo Global API Key)','cf-football-bypass'), [$this,'email_render'], 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section');
         add_settings_field('cloudflare_api_key', __('API Key Global o Token','cf-football-bypass'), [$this,'api_key_render'], 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section');
         add_settings_field('cloudflare_zone_id', __('Zone ID','cf-football-bypass'), [$this,'zone_id_render'], 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section');
+        add_settings_field('server_outgoing_ip', __('IP de salida del servidor','cf-football-bypass'), [$this,'server_outgoing_ip_render'], 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section');
 
         add_settings_section('cfbcolorvivo_plugin_section', __('Ajustes del plugin','cf-football-bypass'), '__return_false', 'cfbcolorvivo_settings_page');
         add_settings_field('check_interval', __('Intervalo de comprobación (minutos)','cf-football-bypass'), [$this,'check_interval_render'], 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section');
@@ -923,6 +950,22 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         $s=$this->get_settings(); ?>
         <input type="text" name="<?php echo esc_attr($this->option_name); ?>[cloudflare_zone_id]" value="<?php echo esc_attr($s['cloudflare_zone_id']); ?>" class="regular-text" />
         <?php
+    }
+    public function server_outgoing_ip_render(){
+        $ips = $this->get_server_outgoing_ips();
+        if (empty($ips)) {
+            echo '<code>' . esc_html__('No se pudo detectar', 'cf-football-bypass') . '</code>';
+            echo '<p class="description">' . esc_html__('No se ha podido determinar la IP de salida del servidor. Comprueba que el servidor tiene acceso a Internet.', 'cf-football-bypass') . '</p>';
+        } elseif (count($ips) === 1) {
+            echo '<code style="font-size:14px;padding:4px 8px;background:#f0f0f1;">' . esc_html($ips[0]) . '</code>';
+            echo '<p class="description">' . esc_html__('Esta es la IP que tu servidor usa para comunicarse con la API de Cloudflare. Puedes restringir tu API Token a esta IP para mayor seguridad.', 'cf-football-bypass') . '</p>';
+        } else {
+            foreach ($ips as $i => $ip) {
+                if ($i > 0) echo ' ';
+                echo '<code style="font-size:14px;padding:4px 8px;background:#f0f0f1;">' . esc_html($ip) . '</code>';
+            }
+            echo '<p class="description">' . esc_html__('Se han detectado varias IPs de salida. Tu servidor puede usar cualquiera de ellas para comunicarse con la API de Cloudflare. Añade todas al restringir tu API Token.', 'cf-football-bypass') . '</p>';
+        }
     }
     public function check_interval_render(){
         $s=$this->get_settings();
@@ -1578,7 +1621,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass
         }
 
         $url = apply_filters('cfbcolorvivo_remote_data_json_url','https://hayahora.futbol/estado/data.json');
-        $resp = wp_remote_get($url, ['timeout'=>25,'redirection'=>5,'user-agent'=>'CFBCV/1.8.1; '.home_url('/')]);
+        $resp = wp_remote_get($url, ['timeout'=>25,'redirection'=>5,'user-agent'=>'CFBCV/1.8.2; '.home_url('/')]);
         $remote_ok=false; $remote_body=null; $last_remote=null;
         if (!is_wp_error($resp) && wp_remote_retrieve_response_code($resp)===200){
             $remote_body = wp_remote_retrieve_body($resp);

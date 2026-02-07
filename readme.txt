@@ -4,7 +4,7 @@ Tags: cloudflare, dns, football, bypass, ip-blocking
 Requires at least: 5.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.8.1
+Stable tag: 1.8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: cf-football-bypass
@@ -172,6 +172,10 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 
 == Changelog ==
 
+= 1.8.2 =
+* NEW: Server outgoing IP detection shown in Settings to help restrict Cloudflare API Token by IP
+* UX: IP is cached for 1 hour and detected from multiple sources for reliability
+
 = 1.8.1 =
 * SECURITY: External cron token comparison now uses hash_equals() to prevent timing attacks
 * PERFORMANCE: Log pruning throttled to once per day instead of on every log event
@@ -229,6 +233,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * Integrated cron system
 
 == Upgrade Notice ==
+
+= 1.8.2 =
+New: Shows server outgoing IP in Settings so you can restrict your Cloudflare API Token to that IP for extra security.
 
 = 1.8.1 =
 Security and usability improvements: timing-safe token comparison, confirmation dialogs, anti double-click, local environment detection, and proper cleanup on uninstall.
