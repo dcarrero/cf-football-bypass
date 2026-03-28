@@ -4,7 +4,7 @@ Tags: cloudflare, dns, football, bypass, ip-blocking
 Requires at least: 5.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.8.5
+Stable tag: 1.8.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: cf-football-bypass
@@ -172,6 +172,14 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 
 == Changelog ==
 
+= 1.8.6 =
+* CODE: Full WordPress Coding Standards compliance (PHPCS): tabs, spacing, Yoda conditions, snake_case variables, PHPDoc comments
+* UX: Plugin version now displayed on all plugin pages (Operation, Settings, Logs)
+* I18N: All remaining hardcoded Spanish strings wrapped in __() for consistent translations
+* CODE: Short ternary operators replaced with full ternary for WP standards
+* CODE: in_array() calls now use strict mode
+* CODE: Assignment-in-condition patterns refactored
+
 = 1.8.5 =
 * NEW: Support for Cloudflare Account-owned API Tokens (in addition to User API Tokens and Global API Key)
 * NEW: Account ID field shown when Account Token is selected
@@ -239,6 +247,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * Integrated cron system
 
 == Upgrade Notice ==
+
+= 1.8.6 =
+Code quality release: full WordPress Coding Standards compliance, plugin version shown on all pages, and improved i18n consistency.
 
 = 1.8.5 =
 New: Support for Cloudflare Account-owned API Tokens. You can now use tokens from Manage Account > Account API Tokens in addition to user tokens and Global API Key.

@@ -5,3 +5,7 @@
 .github/skills/
 CLAUDE.md
 MEMORY.md
+vendor/
+composer.json
+composer.lock
+.gstack/
