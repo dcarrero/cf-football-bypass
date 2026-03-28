@@ -1,20 +1,20 @@
-=== CF Football Bypass ===
+=== ES Football Bypass for Cloudflare ===
 Contributors: davidcarrero
 Tags: cloudflare, dns, football, bypass, ip-blocking
 Requires at least: 5.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.8.6
+Stable tag: 1.9.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
-Text Domain: cf-football-bypass
+Text Domain: es-football-bypass
 Domain Path: /languages
 
 Automatically manages Cloudflare configuration during football matches to avoid mass IP blocks affecting legitimate websites in Spain.
 
 == Description ==
 
-CF Football Bypass is a WordPress plugin created by David Carrero Fernandez-Baillo to help Spanish website owners protect their legitimate sites from collateral damage caused by mass IP blocks ordered during football matches. The project is open source (GPLv2) and available on GitHub: https://github.com/dcarrero/cf-football-bypass
+ES Football Bypass for Cloudflare is a WordPress plugin created by David Carrero Fernandez-Baillo to help Spanish website owners protect their legitimate sites from collateral damage caused by mass IP blocks ordered during football matches. The project is open source (GPLv2) and available on GitHub: https://github.com/dcarrero/cf-football-bypass
 
 The plugin automatically monitors football events in Spain by querying hayahora.futbol and, based on the result, manages Cloudflare DNS records to toggle between Proxied and DNS Only modes. This prevents legitimate visitors from being affected by judicial blocks targeting pirate football streaming.
 
@@ -62,11 +62,11 @@ Additional Tools
 
 1. Download and Install
    - Download the plugin zip file
-   - Extract (or upload the resulting folder) to `wp-content/plugins/cf-football-bypass/`
-   - Go to your WordPress dashboard > Plugins > CF Football Bypass > Activate
+   - Extract (or upload the resulting folder) to `wp-content/plugins/es-football-bypass/`
+   - Go to your WordPress dashboard > Plugins > ES Football Bypass for Cloudflare > Activate
 
 2. Cloudflare Configuration
-   - Go to Settings > CF Football Bypass
+   - Go to Settings > ES Football Bypass for Cloudflare
    - Select your authentication type (Global API Key or API Token)
    - Enter your Cloudflare credentials
    - Add your domain's Zone ID
@@ -99,15 +99,23 @@ For API Token (recommended):
 This plugin connects to the following external services:
 
 = hayahora.futbol =
-The plugin periodically queries the endpoint https://hayahora.futbol/estado/data.json to obtain information about active IP blocks during football events in Spain. This service is free and open source.
+The plugin periodically queries the endpoint https://hayahora.futbol/estado/data.json to check whether there are active IP blocks during football events in Spain. This query runs automatically based on the configured cron interval (default: every 15 minutes) and can also be triggered manually from the admin panel.
+- Data sent: An HTTP GET request with the site's home URL in the User-Agent header. No personal or visitor data is transmitted.
 - URL: https://hayahora.futbol/
-- Privacy Policy: The service does not collect personal data from plugin users.
+- Privacy Policy: The service does not collect personal data from plugin users. It is free and open source.
 
 = Cloudflare API =
-The plugin uses the official Cloudflare API (https://api.cloudflare.com/client/v4/) to manage your zone's DNS records. It requires API credentials that you provide.
+The plugin uses the official Cloudflare API (https://api.cloudflare.com/client/v4/) to read DNS records and toggle the proxy status (Proxied/DNS Only) for selected records. It requires API credentials that you provide in the plugin settings. Credentials are stored in the WordPress database and sent via HTTPS headers to Cloudflare.
+- Data sent: API credentials (in headers), DNS record modifications (record ID, type, name, content, proxied status).
 - URL: https://api.cloudflare.com/
 - Terms of Service: https://www.cloudflare.com/terms/
 - Privacy Policy: https://www.cloudflare.com/privacypolicy/
+
+= Server IP Detection Services =
+The plugin detects your server's outgoing IP address (displayed in the Settings page) by querying three public services. Only the server's own IP is returned; no personal or visitor data is transmitted. Results are cached for 1 hour.
+- https://api.ipify.org/ - Provided by ipify. Privacy Policy: https://www.ipify.org/
+- https://checkip.amazonaws.com/ - Provided by Amazon Web Services. Privacy Policy: https://aws.amazon.com/privacy/
+- https://icanhazip.com/ - Provided by Cloudflare. Privacy Policy: https://www.cloudflare.com/privacypolicy/
 
 = Affiliate Links =
 The plugin's operation page includes affiliate links clearly marked with "(aff)" to VPN services and security tools. These links are optional and do not affect the plugin's functionality.
@@ -147,7 +155,7 @@ See the "Cron and Automation" section for details on wp_cron, external endpoint,
 The plugin uses WordPress internal cron (wp_cron) which runs when there are visits to the website. This is usually sufficient for most sites.
 
 = What if my site has low traffic and cron doesn't run regularly? =
-Go to Settings > CF Football Bypass and copy the token from the "External cron" section. With that token you can set up a real server cron:
+Go to Settings > ES Football Bypass for Cloudflare and copy the token from the "External cron" section. With that token you can set up a real server cron:
 
 */15 * * * * curl -s "https://yourdomain.com/wp-cron.php?cfbcolorvivo_cron=1&token=YOUR_TOKEN_HERE" > /dev/null 2>&1
 
@@ -162,15 +170,20 @@ In the Operation tab, click "WP-Cron Diagnostics" to see the next execution and 
 == Logs and Auditing ==
 
 = Where can I see the action history? =
-In the CF Football Bypass > Logs menu. It shows the latest automatic executions (internal or external cron) and manual actions with date, detail, and user.
+In the ES Football Bypass for Cloudflare > Logs menu. It shows the latest automatic executions (internal or external cron) and manual actions with date, detail, and user.
 
 = Can I disable logging? =
-Yes. In Settings > CF Football Bypass you can disable logging or adjust retention days (minimum 1). Logs are stored in `wp-content/uploads/cfbcolorvivo-logs/cfbcolorvivo-actions.log` protected with .htaccess.
+Yes. In Settings > ES Football Bypass for Cloudflare you can disable logging or adjust retention days (minimum 1). Logs are stored in `wp-content/uploads/cfbcolorvivo-logs/cfbcolorvivo-actions.log` protected with .htaccess.
 
 = How do I verify that cron is working correctly? =
 You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events, looking for the 'cfbcolorvivo_check_football_status' event. You can also review WordPress error logs where the plugin records all its actions.
 
 == Changelog ==
+
+= 1.9.0 =
+* RENAME: Plugin renamed from "CF Football Bypass" to "ES Football Bypass for Cloudflare" (WordPress.org trademark compliance)
+* DOCS: External services section expanded with server IP detection services documentation
+* DOCS: Enhanced privacy and data transmission details for all external services
 
 = 1.8.6 =
 * CODE: Full WordPress Coding Standards compliance (PHPCS): tabs, spacing, Yoda conditions, snake_case variables, PHPDoc comments
@@ -247,6 +260,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * Integrated cron system
 
 == Upgrade Notice ==
+
+= 1.9.0 =
+Plugin renamed to "ES Football Bypass for Cloudflare" for WordPress.org trademark compliance. External services documentation expanded.
 
 = 1.8.6 =
 Code quality release: full WordPress Coding Standards compliance, plugin version shown on all pages, and improved i18n consistency.

@@ -2,5 +2,5 @@
 /**
  * Silence is golden.
  *
- * @package CF_Football_Bypass
+ * @package ES_Football_Bypass
  */

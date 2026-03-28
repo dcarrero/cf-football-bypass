@@ -1,10 +1,10 @@
 <?php
 /**
- * CF Football Bypass - Uninstall
+ * ES Football Bypass - Uninstall
  *
  * Limpia opciones, transients y archivos de log al desinstalar el plugin.
  *
- * @package CF_Football_Bypass
+ * @package ES_Football_Bypass
  */
 
 if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
