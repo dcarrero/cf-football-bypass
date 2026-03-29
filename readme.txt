@@ -1,13 +1,13 @@
 === ES Football Bypass for Cloudflare ===
-Contributors: davidcarrero
+Contributors: dcarrero
 Tags: cloudflare, dns, football, bypass, ip-blocking
 Requires at least: 5.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.9.0
+Stable tag: 1.9.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
-Text Domain: es-football-bypass
+Text Domain: es-football-bypass-for-cloudflare
 Domain Path: /languages
 
 Automatically manages Cloudflare configuration during football matches to avoid mass IP blocks affecting legitimate websites in Spain.
@@ -102,7 +102,8 @@ This plugin connects to the following external services:
 The plugin periodically queries the endpoint https://hayahora.futbol/estado/data.json to check whether there are active IP blocks during football events in Spain. This query runs automatically based on the configured cron interval (default: every 15 minutes) and can also be triggered manually from the admin panel.
 - Data sent: An HTTP GET request with the site's home URL in the User-Agent header. No personal or visitor data is transmitted.
 - URL: https://hayahora.futbol/
-- Privacy Policy: The service does not collect personal data from plugin users. It is free and open source.
+- About the service and privacy: https://hayahora.futbol/#sobre-los-bloqueos
+- Terms of use: The service is free, open source, and does not collect personal data from plugin users or their visitors.
 
 = Cloudflare API =
 The plugin uses the official Cloudflare API (https://api.cloudflare.com/client/v4/) to read DNS records and toggle the proxy status (Proxied/DNS Only) for selected records. It requires API credentials that you provide in the plugin settings. Credentials are stored in the WordPress database and sent via HTTPS headers to Cloudflare.
@@ -173,12 +174,23 @@ In the Operation tab, click "WP-Cron Diagnostics" to see the next execution and 
 In the ES Football Bypass for Cloudflare > Logs menu. It shows the latest automatic executions (internal or external cron) and manual actions with date, detail, and user.
 
 = Can I disable logging? =
-Yes. In Settings > ES Football Bypass for Cloudflare you can disable logging or adjust retention days (minimum 1). Logs are stored in `wp-content/uploads/cfbcolorvivo-logs/cfbcolorvivo-actions.log` protected with .htaccess.
+Yes. In Settings > ES Football Bypass for Cloudflare you can disable logging or adjust retention days (minimum 1). Logs are stored in the uploads directory under `es-football-bypass-for-cloudflare/logs/` protected with .htaccess.
 
 = How do I verify that cron is working correctly? =
 You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events, looking for the 'cfbcolorvivo_check_football_status' event. You can also review WordPress error logs where the plugin records all its actions.
 
 == Changelog ==
+
+= 1.9.1 =
+* FIX: Text domain changed to match new WP.org slug (es-football-bypass-for-cloudflare)
+* FIX: All file paths now use wp_upload_dir() instead of hardcoded WP_CONTENT_DIR
+* FIX: File operations migrated to WP_Filesystem API (no more file_put_contents)
+* FIX: register_setting() uses proper array format with sanitize_callback
+* FIX: Stricter sanitization for selected_records, bypass_blocked_ips and state fields
+* FIX: Inline JavaScript no longer uses PHP interpolation, uses wp_localize_script data
+* FIX: Plugin data directory renamed to es-football-bypass-for-cloudflare in uploads
+* FIX: Contributors field corrected in readme.txt
+* DOCS: External services section updated with hayahora.futbol information links
 
 = 1.9.0 =
 * RENAME: Plugin renamed from "CF Football Bypass" to "ES Football Bypass for Cloudflare" (WordPress.org trademark compliance)
@@ -260,6 +272,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * Integrated cron system
 
 == Upgrade Notice ==
+
+= 1.9.1 =
+WP.org review compliance: text domain, file paths, WP_Filesystem, sanitization, and JS escaping fixes. Language files renamed to match new slug.
 
 = 1.9.0 =
 Plugin renamed to "ES Football Bypass for Cloudflare" for WordPress.org trademark compliance. External services documentation expanded.

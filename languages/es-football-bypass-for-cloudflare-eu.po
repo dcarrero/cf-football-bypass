@@ -1,4 +1,4 @@
-# Galician translation for ES Football Bypass for Cloudflare
+# Basque (Euskara) translation for ES Football Bypass for Cloudflare
 # Copyright (C) 2024 David Carrero Fernandez-Baillo
 # This file is distributed under the GPL v2 or later.
 msgid ""
@@ -8,14 +8,14 @@ msgstr ""
 "POT-Creation-Date: 2024-01-22 00:00+0000\n"
 "PO-Revision-Date: 2024-01-22 00:00+0000\n"
 "Last-Translator: David Carrero Fernandez-Baillo <david@carrero.es>\n"
-"Language-Team: Galician <gl@li.org>\n"
-"Language: gl_ES\n"
+"Language-Team: Basque <eu@li.org>\n"
+"Language: eu\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "X-Generator: Claude Code\n"
-"X-Domain: es-football-bypass\n"
+"X-Domain: es-football-bypass-for-cloudflare\n"
 
 #. Plugin Name of the plugin
 msgid "ES Football Bypass for Cloudflare (Cloudflare)"
@@ -23,7 +23,7 @@ msgstr "ES Football Bypass for Cloudflare (Cloudflare)"
 
 #. Description of the plugin
 msgid "Opera con Cloudflare para alternar Proxy (ON/CDN) y DNS Only (OFF) según bloqueos, con caché persistente de registros y acciones AJAX. UI separada: Operación y Configuración."
-msgstr "Opera con Cloudflare para alternar Proxy (ON/CDN) e DNS Only (OFF) segundo bloqueos, con caché DNS persistente e accións AJAX. Interface separada: Operación e Configuración."
+msgstr "Cloudflare-rekin lan egiten du Proxy (ON/CDN) eta DNS Only (OFF) artean txandakatzeko blokeoen arabera, DNS cache iraunkorrarekin eta AJAX ekintzekin. Interfaze bereizia: Eragiketa eta Konfigurazioa."
 
 #. Author of the plugin
 msgid "David Carrero Fernandez-Baillo"
@@ -31,19 +31,19 @@ msgstr "David Carrero Fernandez-Baillo"
 
 #: es-football-bypass.php:464
 msgid "Credenciales de Cloudflare"
-msgstr "Credenciais de Cloudflare"
+msgstr "Cloudflare kredentzialak"
 
 #: es-football-bypass.php:465
 msgid "Tipo de autenticación"
-msgstr "Tipo de autenticación"
+msgstr "Autentifikazio mota"
 
 #: es-football-bypass.php:466
 msgid "Email (sólo Global API Key)"
-msgstr "Email (só Global API Key)"
+msgstr "Emaila (Global API Key soilik)"
 
 #: es-football-bypass.php:467
 msgid "API Key Global o Token"
-msgstr "API Key Global ou Token"
+msgstr "API Key Globala edo Tokena"
 
 #: es-football-bypass.php:468
 msgid "Zone ID"
@@ -51,63 +51,63 @@ msgstr "Zone ID"
 
 #: es-football-bypass.php:470
 msgid "Ajustes del plugin"
-msgstr "Axustes do plugin"
+msgstr "Pluginaren ezarpenak"
 
 #: es-football-bypass.php:471
 msgid "Intervalo de comprobación (minutos)"
-msgstr "Intervalo de comprobación (minutos)"
+msgstr "Egiaztapen tartea (minutuak)"
 
 #: es-football-bypass.php:472
 msgid "Intervalo tras desactivar Cloudflare (min)"
-msgstr "Intervalo tras desactivar Cloudflare (min)"
+msgstr "Cloudflare desaktibatu ondorengo tartea (min)"
 
 #: es-football-bypass.php:473
 msgid "Forzar Proxy OFF durante fútbol"
-msgstr "Forzar Proxy OFF durante o fútbol"
+msgstr "Proxy OFF behartu futbolean"
 
 #: es-football-bypass.php:474
 msgid "Registros DNS a gestionar (se cargan en Operación)"
-msgstr "Rexistros DNS a xestionar (cárganse en Operación)"
+msgstr "Kudeatzeko DNS erregistroak (Eragiketan kargatzen dira)"
 
 #: es-football-bypass.php:475
 msgid "Registro de acciones"
-msgstr "Rexistro de accións"
+msgstr "Ekintzen erregistroa"
 
 #: es-football-bypass.php:476
 msgid "Retención de logs (días)"
-msgstr "Retención de logs (días)"
+msgstr "Log-en atxikipena (egunak)"
 
 #: es-football-bypass.php:477
 msgid "Token para cron externo"
-msgstr "Token para cron externo"
+msgstr "Kanpoko cron-erako tokena"
 
 #: es-football-bypass.php:478
 msgid "Resetear configuración"
-msgstr "Restablecer configuración"
+msgstr "Konfigurazioa berrezarri"
 
 #: es-football-bypass.php:641
 msgid "Activo"
-msgstr "Activo"
+msgstr "Aktibo"
 
 #: es-football-bypass.php:641
 msgid "Desactivado"
-msgstr "Desactivado"
+msgstr "Desaktibatuta"
 
 #: es-football-bypass.php:642
 msgid "Retención: %d días."
-msgstr "Retención: %d días."
+msgstr "Atxikipena: %d egun."
 
 #: es-football-bypass.php:644
 msgid "El registro está desactivado. Actívalo en la pestaña de Configuración."
-msgstr "O rexistro está desactivado. Actívao na lapela de Configuración."
+msgstr "Erregistroa desaktibatuta dago. Aktibatu Konfigurazio fitxan."
 
 #: es-football-bypass.php:648
 msgid "Todavía no hay eventos registrados."
-msgstr "Aínda non hai eventos rexistrados."
+msgstr "Oraindik ez dago gertaerarik erregistratuta."
 
 #: es-football-bypass.php:650
 msgid "El archivo de log existe pero no contiene eventos recientes."
-msgstr "O ficheiro de log existe pero non contén eventos recentes."
+msgstr "Log fitxategia existitzen da baina ez du azken gertaerarik."
 
 #: es-football-bypass.php:655
 msgid "Fecha"
@@ -115,60 +115,60 @@ msgstr "Data"
 
 #: es-football-bypass.php:655
 msgid "Tipo"
-msgstr "Tipo"
+msgstr "Mota"
 
 #: es-football-bypass.php:655
 msgid "Mensaje"
-msgstr "Mensaxe"
+msgstr "Mezua"
 
 #: es-football-bypass.php:655
 msgid "Contexto"
-msgstr "Contexto"
+msgstr "Testuingurua"
 
 #: es-football-bypass.php:669
 msgid "Se muestran los 250 eventos más recientes."
-msgstr "Móstranse os 250 eventos máis recentes."
+msgstr "Azken 250 gertaerak erakusten dira."
 
 #: es-football-bypass.php:721
 msgid "Minutos que deben pasar tras desactivar Cloudflare antes de volver a comprobar si puede reactivarse (5-1440)."
-msgstr "Minutos que deben pasar tras desactivar Cloudflare antes de volver comprobar se pode reactivarse (5-1440)."
+msgstr "Cloudflare desaktibatu ondoren igaro behar diren minutuak berraktibatu daitekeen egiaztatu aurretik (5-1440)."
 
 #: es-football-bypass.php:728
 msgid "Desactivar Proxy cuando hay fútbol (General=SI), sin esperar detección de este dominio"
-msgstr "Desactivar Proxy cando hai fútbol (Xeral=SI), sen agardar detección deste dominio"
+msgstr "Proxy desaktibatu futbola dagoenean (Orokorra=BAI), domeinu honen detekzioaren zain egon gabe"
 
 #: es-football-bypass.php:729
 msgid "⚠️ IMPORTANTE: Con esta opción activada, el proxy se desactivará automáticamente cuando hayahora.futbol indique que hay bloqueos activos (General=SI), aunque tu dominio específico no haya sido detectado como bloqueado."
-msgstr "⚠️ IMPORTANTE: Con esta opción activada, o proxy desactivarase automaticamente cando hayahora.futbol indique que hai bloqueos activos (Xeral=SI), aínda que o teu dominio específico non fose detectado como bloqueado."
+msgstr "⚠️ GARRANTZITSUA: Aukera hau aktibatuta, proxy-a automatikoki desaktibatuko da hayahora.futbol-ek blokeo aktiboak daudela adierazten duenean (Orokorra=BAI), zure domeinu espezifikoa blokeatuta detektatu ez bada ere."
 
 #: es-football-bypass.php:730
 msgid "Útil para evitar falsos negativos cuando sabes que tu sitio es bloqueado durante eventos de fútbol pero la detección de IP no siempre funciona correctamente."
-msgstr "Útil para evitar falsos negativos cando sabes que o teu sitio é bloqueado durante eventos de fútbol pero a detección de IP non sempre funciona correctamente."
+msgstr "Erabilgarria negatibo faltsuak ekiditeko, zure gunea futbol ekitaldietan blokeatzen dela dakizunean baina IP detekzioak ez du beti ondo funtzionatzen."
 
 #: es-football-bypass.php:736
 msgid "Guardar acciones en el registro (cron y manuales)"
-msgstr "Gardar accións no rexistro (cron e manuais)"
+msgstr "Ekintzak erregistroan gorde (cron eta eskuzkoak)"
 
 #: es-football-bypass.php:737
 msgid "Los registros se guardan en wp-content/uploads/cfbcolorvivo-logs/ protegidos y se muestran en la pestaña Logs."
-msgstr "Os rexistros gárdanse en wp-content/uploads/cfbcolorvivo-logs/ protexidos e móstranse na lapela Logs."
+msgstr "Erregistroak wp-content/uploads/cfbcolorvivo-logs/ karpetan gordetzen dira babestuta eta Logs fitxan erakusten dira."
 
 #: es-football-bypass.php:744
 msgid "Número de días a conservar registros (mínimo 1)."
-msgstr "Número de días a conservar rexistros (mínimo 1)."
+msgstr "Erregistroak gordetzeko egun kopurua (gutxienez 1)."
 
 #: es-football-bypass.php:750
 msgid "Usa este token en el cron externo:"
-msgstr "Usa este token no cron externo:"
+msgstr "Erabili token hau kanpoko cron-ean:"
 
 #: es-football-bypass.php:753
 msgid "Puedes regenerar el token borrándolo y guardando los ajustes (se creará uno nuevo)."
-msgstr "Podes rexenerar o token borrándoo e gardando os axustes (crearase un novo)."
+msgstr "Tokena birsortu dezakezu ezabatuz eta ezarpenak gordez (berri bat sortuko da)."
 
 #: es-football-bypass.php:756
 msgid "Borrar toda la configuración del plugin al guardar"
-msgstr "Borrar toda a configuración do plugin ao gardar"
+msgstr "Pluginaren konfigurazio guztia ezabatu gordetzean"
 
 #: es-football-bypass.php:757
 msgid "Esta acción elimina credenciales, registros seleccionados, caché DNS y logs. Tendrás que configurar el plugin de nuevo."
-msgstr "Esta acción elimina credenciais, rexistros seleccionados, caché DNS e logs. Terás que configurar o plugin de novo."
+msgstr "Ekintza honek kredentzialak, hautatutako erregistroak, DNS cachea eta log-ak ezabatzen ditu. Plugina berriro konfiguratu beharko duzu."
