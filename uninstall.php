@@ -29,32 +29,41 @@ if ( ! function_exists( 'WP_Filesystem' ) ) {
 }
 WP_Filesystem();
 
-// Eliminar directorio de logs.
-$cfbcolorvivo_log_dir = WP_CONTENT_DIR . '/uploads/cfbcolorvivo-logs';
-if ( is_dir( $cfbcolorvivo_log_dir ) ) {
-	$cfbcolorvivo_files = glob( $cfbcolorvivo_log_dir . '/*' );
-	if ( is_array( $cfbcolorvivo_files ) ) {
-		foreach ( $cfbcolorvivo_files as $cfbcolorvivo_file ) {
-			if ( is_file( $cfbcolorvivo_file ) ) {
-				wp_delete_file( $cfbcolorvivo_file );
+$cfbcolorvivo_upload_base = wp_upload_dir()['basedir'];
+
+// Eliminar directorio principal del plugin en uploads.
+$cfbcolorvivo_plugin_dir = $cfbcolorvivo_upload_base . '/es-football-bypass-for-cloudflare';
+foreach ( array( $cfbcolorvivo_plugin_dir . '/logs', $cfbcolorvivo_plugin_dir ) as $cfbcolorvivo_dir ) {
+	if ( is_dir( $cfbcolorvivo_dir ) ) {
+		$cfbcolorvivo_files = glob( $cfbcolorvivo_dir . '/*' );
+		if ( is_array( $cfbcolorvivo_files ) ) {
+			foreach ( $cfbcolorvivo_files as $cfbcolorvivo_file ) {
+				if ( is_file( $cfbcolorvivo_file ) ) {
+					wp_delete_file( $cfbcolorvivo_file );
+				}
 			}
 		}
+		$wp_filesystem->rmdir( $cfbcolorvivo_dir );
 	}
-	$wp_filesystem->rmdir( $cfbcolorvivo_log_dir );
 }
 
-// Eliminar directorio de datos locales.
-$cfbcolorvivo_data_dir = WP_CONTENT_DIR . '/uploads/cfbcolorvivo';
-if ( is_dir( $cfbcolorvivo_data_dir ) ) {
-	$cfbcolorvivo_files = glob( $cfbcolorvivo_data_dir . '/*' );
-	if ( is_array( $cfbcolorvivo_files ) ) {
-		foreach ( $cfbcolorvivo_files as $cfbcolorvivo_file ) {
-			if ( is_file( $cfbcolorvivo_file ) ) {
-				wp_delete_file( $cfbcolorvivo_file );
+// Eliminar directorios legacy de versiones anteriores.
+$cfbcolorvivo_legacy_dirs = array(
+	$cfbcolorvivo_upload_base . '/cfbcolorvivo-logs',
+	$cfbcolorvivo_upload_base . '/cfbcolorvivo',
+);
+foreach ( $cfbcolorvivo_legacy_dirs as $cfbcolorvivo_dir ) {
+	if ( is_dir( $cfbcolorvivo_dir ) ) {
+		$cfbcolorvivo_files = glob( $cfbcolorvivo_dir . '/*' );
+		if ( is_array( $cfbcolorvivo_files ) ) {
+			foreach ( $cfbcolorvivo_files as $cfbcolorvivo_file ) {
+				if ( is_file( $cfbcolorvivo_file ) ) {
+					wp_delete_file( $cfbcolorvivo_file );
+				}
 			}
 		}
+		$wp_filesystem->rmdir( $cfbcolorvivo_dir );
 	}
-	$wp_filesystem->rmdir( $cfbcolorvivo_data_dir );
 }
 
 // Limpiar cron.
