@@ -39,8 +39,8 @@ yarn.lock
 CLAUDE.md
 MEMORY.md
 
-# English-language readme kept for reference (Spanish readme.txt is the canonical one for WP.org)
-readme.en.txt
+# Spanish translation kept for reference / GlotPress upload (English readme.txt is the canonical one for WP.org)
+readme-es.txt
 
 # Release artifacts
 *.zip
