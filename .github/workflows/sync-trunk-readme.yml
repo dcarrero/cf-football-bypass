@@ -1,0 +1,76 @@
+name: Sync readme.txt to SVN trunk (no version bump)
+
+# Manually-triggered workflow to push the current readme.txt from main
+# to WordPress.org SVN trunk WITHOUT creating a new tag and WITHOUT
+# bumping the plugin version. Useful for cosmetic readme changes
+# (translation, typo fixes, screenshot description tweaks) that should
+# show on the public page immediately without forcing an update on
+# installed users.
+#
+# This workflow only touches `trunk/readme.txt`. It does NOT modify
+# `tags/`, `assets/`, or any other file in trunk.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    name: Sync trunk readme
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install Subversion
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y subversion
+
+      - name: Checkout SVN trunk (files only)
+        env:
+          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+        run: |
+          svn co --depth=files \
+            --username "$SVN_USERNAME" \
+            --password "$SVN_PASSWORD" \
+            --non-interactive \
+            --trust-server-cert \
+            https://plugins.svn.wordpress.org/es-football-bypass-for-cloudflare/trunk \
+            /tmp/wp-trunk
+
+      - name: Replace readme.txt with current main
+        run: |
+          if [ ! -f readme.txt ]; then
+            echo "ERROR: readme.txt not found in repo root"
+            exit 1
+          fi
+          cp readme.txt /tmp/wp-trunk/readme.txt
+
+      - name: Show svn diff (sanity check)
+        run: |
+          cd /tmp/wp-trunk
+          svn diff readme.txt | head -200 || true
+          echo "---"
+          svn status
+
+      - name: Commit readme.txt to SVN trunk
+        env:
+          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+        run: |
+          cd /tmp/wp-trunk
+          # Bail out if there is nothing to commit
+          if ! svn status | grep -q '^M.*readme.txt$'; then
+            echo "ℹ︎ readme.txt is unchanged in trunk, nothing to commit."
+            exit 0
+          fi
+          svn ci readme.txt \
+            --username "$SVN_USERNAME" \
+            --password "$SVN_PASSWORD" \
+            --non-interactive \
+            --message "i18n: update trunk readme.txt (cosmetic, no version bump)"
+
+      - name: Verify public SVN reflects the change
+        run: |
+          curl -s https://plugins.svn.wordpress.org/es-football-bypass-for-cloudflare/trunk/readme.txt | head -20
