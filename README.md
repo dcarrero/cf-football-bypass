@@ -7,7 +7,7 @@ Plugin de WordPress que automatiza el cambio entre modo Proxied y DNS Only en Cl
 ## Instalación rápida
 
 1. Descarga el ZIP desde [GitHub](https://github.com/dcarrero/cf-football-bypass).
-2. Sube la carpeta `es-football-bypass` a `wp-content/plugins/` (quedará como `plugins/es-football-bypass/`).
+2. Sube la carpeta `es-football-bypass-for-cloudflare` a `wp-content/plugins/` (quedará como `plugins/es-football-bypass-for-cloudflare/`).
 3. Activa el plugin desde *Plugins > Plugins instalados*.
 4. Configura tus credenciales Cloudflare en *Ajustes > ES Football Bypass*, ajusta el intervalo de comprobación y el cooldown tras desactivar Cloudflare, y selecciona los registros DNS a gestionar.
 

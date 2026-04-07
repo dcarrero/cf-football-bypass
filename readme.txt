@@ -62,7 +62,7 @@ Additional Tools
 
 1. Download and Install
    - Download the plugin zip file
-   - Extract (or upload the resulting folder) to `wp-content/plugins/es-football-bypass/`
+   - Extract (or upload the resulting folder) to `wp-content/plugins/es-football-bypass-for-cloudflare/`
    - Go to your WordPress dashboard > Plugins > ES Football Bypass for Cloudflare > Activate
 
 2. Cloudflare Configuration
@@ -178,6 +178,11 @@ Yes. In Settings > ES Football Bypass for Cloudflare you can disable logging or 
 
 = How do I verify that cron is working correctly? =
 You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events, looking for the 'cfbcolorvivo_check_football_status' event. You can also review WordPress error logs where the plugin records all its actions.
+
+== Screenshots ==
+
+1. Settings page: select Cloudflare authentication type (Global API Key, User Token or Account Token), enter credentials, configure check interval, cooldown after disabling Cloudflare, the "Force Proxy OFF during football" override, log retention, and the external cron token.
+2. Operation page: live block status from hayahora.futbol, cached DNS records with current Proxied state per record, manual controls (test connection, force Proxy ON/OFF, manual check, WP-Cron diagnostics), and a sidebar with related links.
 
 == Changelog ==
 
