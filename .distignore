@@ -1,0 +1,44 @@
+# A set of files you probably don't want in your WordPress.org distribution
+# Used by 10up/action-wordpress-plugin-deploy via rsync --exclude-from
+
+# Directories
+.git
+.github
+.claude
+.codex
+.cursor
+.gstack
+.wordpress-org
+vendor
+node_modules
+tests
+bin
+
+# Hidden / dev files
+.DS_Store
+.gitignore
+.gitattributes
+.distignore
+.editorconfig
+.eslintrc
+.eslintignore
+.phpcs.xml
+.phpcs.xml.dist
+.wp-env.json
+phpunit.xml
+phpunit.xml.dist
+phpcs.xml
+phpcs.xml.dist
+composer.json
+composer.lock
+package.json
+package-lock.json
+yarn.lock
+
+# Internal notes (NOT for distribution)
+CLAUDE.md
+MEMORY.md
+
+# Release artifacts
+*.zip
+*.tar.gz
