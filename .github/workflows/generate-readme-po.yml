@@ -1,0 +1,65 @@
+name: Generate readme-es.po for GlotPress
+
+# Auto-generates the Spanish translation .po for the WordPress.org
+# stable-readme/es project from readme.txt + readme-es.txt and uploads it
+# as a release asset, ready to be imported with one click at:
+#
+#   https://translate.wordpress.org/projects/wp-plugins/
+#     es-football-bypass-for-cloudflare/stable-readme/es/
+#
+# Triggers:
+# - On every published release: generates the .po, attaches it to the release.
+# - Manually via workflow_dispatch: useful for regenerating after a readme
+#   edit without bumping version.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  generate:
+    name: Build readme-es.po
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Generate Spanish readme .po
+        id: generate
+        run: |
+          mkdir -p out
+          OUT_FILE="out/wp-plugins-es-football-bypass-for-cloudflare-stable-readme-es.po"
+          python3 bin/generate-readme-po.py readme.txt readme-es.txt "$OUT_FILE"
+          echo "po_file=$OUT_FILE" >> "$GITHUB_OUTPUT"
+          echo "---"
+          ls -la "$OUT_FILE"
+          echo "---"
+          head -25 "$OUT_FILE"
+
+      - name: Validate .po with msgfmt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext
+          msgfmt --check --statistics --output-file=/dev/null "${{ steps.generate.outputs.po_file }}"
+
+      - name: Attach .po to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.generate.outputs.po_file }}
+
+      - name: Upload as workflow artifact
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: readme-es-po
+          path: ${{ steps.generate.outputs.po_file }}
+          retention-days: 30

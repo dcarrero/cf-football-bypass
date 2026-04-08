@@ -186,6 +186,14 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 
 == Changelog ==
 
+= 1.9.2 =
+* I18N: Idioma fuente refactorizado al inglés (antes era castellano), alineado con la convención de traducción de WordPress.org
+* I18N: Nuevo es_ES.po con el 100% de las traducciones al castellano incluidas (sin cambios funcionales para los usuarios en castellano)
+* I18N: Traducciones de ca, eu, fr_FR y gl_ES completadas al 100% (23 cadenas nuevas añadidas)
+* I18N: Eliminado en_US.po (el idioma fuente ya ES el inglés, ya no es necesario)
+* I18N: .pot regenerado desde el código actual con msgids en inglés y referencias de línea correctas
+* DOCS: Cabecera Description del plugin reescrita en inglés para coincidir con el nuevo idioma fuente
+
 = 1.9.1 =
 * FIX: Text domain cambiado para coincidir con el nuevo slug de WP.org (es-football-bypass-for-cloudflare)
 * FIX: Todas las rutas de fichero ahora usan wp_upload_dir() en lugar de WP_CONTENT_DIR hardcodeado
@@ -277,6 +285,9 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 * Sistema de cron integrado
 
 == Upgrade Notice ==
+
+= 1.9.2 =
+Refactor i18n: idioma fuente cambiado a inglés (convención de WordPress.org). Los usuarios en castellano no notan ningún cambio (es_ES.po incluido al 100%). Traducciones de catalán, vasco, francés y gallego completadas.
 
 = 1.9.1 =
 Cumplimiento de la revisión de WP.org: text domain, rutas de fichero, WP_Filesystem, saneamiento y correcciones de escapado en JS. Ficheros de idioma renombrados para coincidir con el nuevo slug.
