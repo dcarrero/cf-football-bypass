@@ -4,7 +4,7 @@ Tags: cloudflare, dns, football, bypass, ip-blocking
 Requires at least: 5.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.9.1
+Stable tag: 1.9.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -186,6 +186,14 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 
 == Changelog ==
 
+= 1.9.2 =
+* I18N: Source language refactored to English (was Spanish), aligning with the WordPress.org translation convention
+* I18N: New es_ES.po with 100% Spanish translations bundled (no functionality change for Spanish users)
+* I18N: ca, eu, fr_FR and gl_ES translations completed to 100% (23 new strings added)
+* I18N: en_US.po removed (source IS English now, no longer needed)
+* I18N: .pot regenerated from current code with English msgids and accurate line references
+* DOCS: Plugin header Description rewritten in English to match the new source language
+
 = 1.9.1 =
 * FIX: Text domain changed to match new WP.org slug (es-football-bypass-for-cloudflare)
 * FIX: All file paths now use wp_upload_dir() instead of hardcoded WP_CONTENT_DIR
@@ -277,6 +285,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * Integrated cron system
 
 == Upgrade Notice ==
+
+= 1.9.2 =
+i18n refactor: source language switched to English (WordPress.org convention). Spanish users see no change (bundled es_ES.po at 100%). Catalan, Basque, French and Galician translations completed.
 
 = 1.9.1 =
 WP.org review compliance: text domain, file paths, WP_Filesystem, sanitization, and JS escaping fixes. Language files renamed to match new slug.
