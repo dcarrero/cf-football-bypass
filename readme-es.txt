@@ -4,7 +4,7 @@ Tags: cloudflare, dns, futbol, bypass, bloqueo-ip
 Requires at least: 5.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.9.1
+Stable tag: 1.9.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -186,6 +186,24 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 
 == Changelog ==
 
+= 1.9.5 =
+* NUEVO: Panel de diagnóstico del feed en la página de Operación (edad y tamaño del data.json local, estado de la última descarga remota, número de IPs con bloqueo activo)
+* NUEVO: Botón "Borrar caché local (data.json)" para forzar una nueva descarga limpia en la siguiente comprobación
+* NUEVO: Ajuste de umbral de obsolescencia (1-72h, por defecto 6h) — los estados "bloqueado" cuyo último stateChange sea anterior a este plazo se tratan como no bloqueados, evitando que registros huérfanos mantengan el bypass activo indefinidamente. Sobrescribible vía filtro cfbcolorvivo_stale_threshold_seconds
+* NUEVO: Ajuste "ISPs mínimos con bloqueo" (1-20, por defecto 2) — el bypass general solo se activa cuando al menos N proveedores distintos reportan bloqueos a la vez, reduciendo falsos positivos por incidentes aislados de un solo ISP. Si el feed no publica información por ISP, se mantiene el comportamiento clásico. Sobrescribible vía filtro cfbcolorvivo_min_isps_blocked
+* NUEVO: El panel de diagnóstico del feed ahora lista los ISPs con bloqueos activos e indica si superan el umbral configurado
+* NUEVO: Notificaciones por email opcionales al administrador cuando el bypass se activa/desactiva automáticamente, con throttle de 2 minutos para evitar ráfagas. Desactivadas por defecto. Sobrescribible vía filtro cfbcolorvivo_email_throttle_seconds
+* NUEVO: Ajuste de modo de interfaz — "Simple" oculta el panel de diagnóstico, la pestaña de logs y la consola técnica para usuarios no técnicos, dejando solo el estado de bloqueo y los botones manuales de proxy ON/OFF. "Avanzado" muestra todo como antes. Las nuevas instalaciones arrancan en Simple; al actualizar desde 1.9.x o anteriores se mantiene la experiencia Avanzada automáticamente
+* NUEVO: La configuración del cron externo muestra ahora la URL completa a consultar y un ejemplo de línea crontab lista para copiar, usando tu intervalo de comprobación actual
+* NUEVO: Ajuste "Eliminar datos al desinstalar" — desmárcalo para conservar configuración, credenciales y logs entre reinstalaciones. El hook de cron y los transients efímeros se limpian siempre independientemente de este ajuste
+* SEGURIDAD: Cabecera Update URI añadida para que las actualizaciones solo provengan de WordPress.org (previene el secuestro del slug desde fuentes externas)
+* RENDIMIENTO: get_settings() memoizado por petición, evitando normalizar repetidamente en la misma carga de página
+* FIX: Se registra en el log cuando dns_get_record() falla para el dominio del sitio
+* FIX: Los errores al parsear DateTime al comparar lastUpdate ahora se registran en lugar de silenciarse
+* FIX: Aviso en el log cuando el JSON de hayahora.futbol tiene una estructura inesperada (sin lastUpdate ni claves de IPs conocidas)
+* CÓDIGO: El parseo de stateChanges, antes duplicado en tres lugares, se ha refactorizado en un solo helper latest_state_from_changes()
+* UI: Eliminada la opción "Reset settings" — desinstalar el plugin (con "Eliminar datos al desinstalar" marcado, que es lo predeterminado) deja la configuración igual de limpia y evita duplicar la acción destructiva
+
 = 1.9.2 =
 * I18N: Idioma fuente refactorizado al inglés (antes era castellano), alineado con la convención de traducción de WordPress.org
 * I18N: Nuevo es_ES.po con el 100% de las traducciones al castellano incluidas (sin cambios funcionales para los usuarios en castellano)
@@ -285,6 +303,9 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 * Sistema de cron integrado
 
 == Upgrade Notice ==
+
+= 1.9.5 =
+Release mayor de calidad: modos de interfaz simple/avanzado (el simple oculta logs y diagnóstico técnico para sitios de clientes), notificaciones por email opcionales en cambios automáticos del bypass, umbral de obsolescencia y ISPs mínimos para reducir falsos positivos, panel de diagnóstico del feed, botón para borrar caché local, UI mejorada del cron externo y toggle "Eliminar datos al desinstalar". Los upgrades mantienen la experiencia Avanzada; las nuevas instalaciones arrancan en Simple.
 
 = 1.9.2 =
 Refactor i18n: idioma fuente cambiado a inglés (convención de WordPress.org). Los usuarios en castellano no notan ningún cambio (es_ES.po incluido al 100%). Traducciones de catalán, vasco, francés y gallego completadas.

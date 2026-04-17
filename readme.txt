@@ -4,7 +4,7 @@ Tags: cloudflare, dns, football, bypass, ip-blocking
 Requires at least: 5.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.9.2
+Stable tag: 1.9.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -186,6 +186,24 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 
 == Changelog ==
 
+= 1.9.5 =
+* NEW: Feed diagnostics panel on the Operation page (local data.json age and size, last remote fetch status, active blocked IPs count)
+* NEW: "Clear local cache (data.json)" button to force a clean re-fetch on the next check
+* NEW: Staleness threshold setting (1-72h, default 6h) — "blocked" states whose last stateChange is older than this are treated as unblocked, preventing orphan entries from keeping the bypass active indefinitely. Overridable via cfbcolorvivo_stale_threshold_seconds filter
+* NEW: Minimum-ISPs-with-blocks setting (1-20, default 2) — general bypass only triggers when at least N distinct ISPs report blocks simultaneously, reducing false positives from isolated single-ISP outages. Falls back to classic behavior if the feed has no per-ISP information. Overridable via cfbcolorvivo_min_isps_blocked filter
+* NEW: Feed diagnostics panel now lists the ISPs with active blocks and whether they meet the minimum-ISPs gate
+* NEW: Optional email notifications to the site admin when the bypass turns on/off automatically, with a 2-minute throttle to prevent bursts. Off by default. Overridable via cfbcolorvivo_email_throttle_seconds filter
+* NEW: Interface mode setting — "Simple" hides the diagnostics panel, the logs tab and the technical console for non-technical users, leaving only the block status and the manual proxy ON/OFF buttons. "Advanced" shows everything as before. New installs default to Simple; upgrades from 1.9.x and earlier keep the Advanced experience automatically
+* NEW: External cron settings now show the full request URL and a ready-to-paste crontab example using your current check interval
+* NEW: "Delete data on uninstall" setting — uncheck it to keep settings, credentials and logs across reinstalls. Cron hook and ephemeral transients are always cleaned up regardless of this setting
+* SECURITY: Update URI header added to lock updates to WordPress.org (prevents slug hijacking by external sources)
+* PERF: get_settings() memoized per request, avoiding repeated normalization on the same page load
+* FIX: Explicit logging when dns_get_record() fails for the site domain
+* FIX: DateTime parse errors when comparing lastUpdate are now logged instead of silenced
+* FIX: Warning logged when hayahora.futbol JSON has unexpected structure (no lastUpdate nor known IP keys)
+* CODE: stateChanges parsing deduplicated across three call sites into a single latest_state_from_changes() helper
+* UI: "Reset settings" option removed — uninstalling the plugin (with "Delete data on uninstall" checked, which is the default) gives the same clean slate and avoids duplicating the destructive action
+
 = 1.9.2 =
 * I18N: Source language refactored to English (was Spanish), aligning with the WordPress.org translation convention
 * I18N: New es_ES.po with 100% Spanish translations bundled (no functionality change for Spanish users)
@@ -285,6 +303,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * Integrated cron system
 
 == Upgrade Notice ==
+
+= 1.9.5 =
+Major quality release: simple/advanced UI modes (simple hides logs and technical diagnostics for client sites), optional email notifications on automatic bypass changes, staleness threshold and minimum-ISPs gate to reduce false positives, feed diagnostics panel, clear-local-cache button, improved external cron UI, and a "Delete data on uninstall" toggle. Upgrades keep the Advanced experience; new installs start in Simple.
 
 = 1.9.2 =
 i18n refactor: source language switched to English (WordPress.org convention). Spanish users see no change (bundled es_ES.po at 100%). Catalan, Basque, French and Galician translations completed.

@@ -3,6 +3,8 @@
  * ES Football Bypass - Uninstall
  *
  * Limpia opciones, transients y archivos de log al desinstalar el plugin.
+ * Respeta el setting `delete_data_on_uninstall` — si el usuario lo desmarcó,
+ * conservamos la configuración y los logs para una futura reinstalación.
  *
  * @package ES_Football_Bypass
  */
@@ -11,16 +13,32 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	exit;
 }
 
-// Eliminar opciones del plugin.
-delete_option( 'cfbcolorvivo_settings' );
-delete_option( 'cfbcolorvivo_settings_last_trace' );
+// Leer preferencia antes de borrar nada. Default: 1 (borrar), para preservar el comportamiento histórico en instalaciones sin el setting.
+$cfbcolorvivo_settings = get_option( 'cfbcolorvivo_settings', array() );
+$cfbcolorvivo_wipe     = ! is_array( $cfbcolorvivo_settings ) || ! isset( $cfbcolorvivo_settings['delete_data_on_uninstall'] )
+	? true
+	: ! empty( $cfbcolorvivo_settings['delete_data_on_uninstall'] );
 
-// Eliminar transients conocidos.
+// Transients efímeros siempre se borran: son caches que no aportan nada si el plugin se reinstala.
 delete_transient( 'cfbcolorvivo_settings_notice_ok' );
 delete_transient( 'cfbcolorvivo_settings_notice_err' );
 delete_transient( 'cfbcolorvivo_domain_ips_cache' );
 delete_transient( 'cfbcolorvivo_prune_throttle' );
 delete_transient( 'cfbcolorvivo_server_outgoing_ips' );
+delete_transient( 'cfbcolorvivo_feed_last_fetch' );
+delete_transient( 'cfbcolorvivo_last_email_sent' );
+
+// Cron hook siempre se limpia para no dejar schedules colgados.
+wp_clear_scheduled_hook( 'cfbcolorvivo_check_football_status' );
+
+if ( ! $cfbcolorvivo_wipe ) {
+	// Usuario pidió conservar datos. No borramos option ni logs ni directorio.
+	return;
+}
+
+// Borrado completo.
+delete_option( 'cfbcolorvivo_settings' );
+delete_option( 'cfbcolorvivo_settings_last_trace' );
 
 // Inicializar WP_Filesystem.
 global $wp_filesystem;
@@ -65,6 +83,3 @@ foreach ( $cfbcolorvivo_legacy_dirs as $cfbcolorvivo_dir ) {
 		$wp_filesystem->rmdir( $cfbcolorvivo_dir );
 	}
 }
-
-// Limpiar cron.
-wp_clear_scheduled_hook( 'cfbcolorvivo_check_football_status' );
