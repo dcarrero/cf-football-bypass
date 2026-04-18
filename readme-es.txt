@@ -4,7 +4,7 @@ Tags: cloudflare, dns, futbol, bypass, bloqueo-ip
 Requires at least: 5.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.9.1
+Stable tag: 1.9.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -28,6 +28,15 @@ Cuando se detecta fútbol:
 - Desactiva automáticamente el proxy de Cloudflare en los registros DNS seleccionados
 - Tu web pasa a modo DNS Only, evitando las IPs de Cloudflare potencialmente bloqueadas
 - Tras el periodo de enfriamiento configurado, vuelve a activar el proxy de Cloudflare automáticamente
+
+= Dos modos de interfaz: Simple y Avanzado =
+
+Desde la versión 1.9.6 el plugin incluye dos modos de interfaz que puedes cambiar desde Configuración → Modo de interfaz:
+
+- **Simple** (por defecto en instalaciones nuevas, recomendado para agencias y sitios de clientes): muestra solo lo imprescindible. Estado de bloqueo, botones manuales de proxy ON/OFF, avisos por email básicos ante cambios de estado, credenciales de Cloudflare, comportamiento del bypass y opciones de desinstalación. La pestaña de logs, el panel de diagnóstico del feed, el umbral de obsolescencia, la retención de logs y el token de cron externo quedan ocultos para reducir ruido a usuarios no técnicos. Los logs se siguen escribiendo en disco — siempre puedes cambiar a Avanzado si necesitas diagnosticar algo.
+- **Avanzado** (por defecto al actualizar desde versiones anteriores): muestra todo, incluyendo el panel completo de diagnóstico del feed, la pestaña de logs, la consola técnica y las opciones avanzadas. Ideal para desarrolladores, usuarios avanzados o cuando necesitas diagnosticar comportamiento o configurar un cron desde el servidor.
+
+Existe también una subpágina independiente "¿Hay fútbol ahora?" que simplemente responde SÍ o NO según el feed público, con una nota breve sobre la fuente de los datos. Perfecto para compartir el enlace con un cliente final que solo quiere saber si hay bloqueos activos ahora mismo.
 
 = Funcionalidades clave =
 
@@ -186,6 +195,33 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 
 == Changelog ==
 
+= 1.9.6 =
+* NUEVO: Subpágina "¿Hay fútbol ahora?" bajo Operación — un panel de estado con un SÍ/NO grande basado en el feed de hayahora.futbol, con una nota breve sobre la fuente de los datos. Pensado para que usuarios no técnicos puedan comprobar de un vistazo si hay bloqueos activos de La Liga
+* NUEVO: Campo opcional "Destinatario de los avisos" — déjalo vacío para usar el email del administrador del sitio (por defecto), o pon otra dirección para dirigir las notificaciones a un buzón de soporte o al cliente final
+* UX: Página de Configuración reorganizada en secciones más claras: Modo de interfaz, Credenciales Cloudflare, Comportamiento del bypass (con "Forzar Proxy OFF durante fútbol" ahora arriba del todo), Avisos por email, Al desinstalar y Opciones avanzadas (solo visibles en modo Avanzado)
+* UX: Las opciones técnicas (Umbral de obsolescencia, Registro de acciones, Retención de logs, Token de cron externo) se agrupan ahora en "Opciones avanzadas" y quedan ocultas en modo Simple para reducir ruido en sitios de clientes
+* UX: La etiqueta del modo "Avanzado" menciona ahora explícitamente la configuración del cron para que sea fácil encontrar esa sección
+* I18N: El plugin ahora llama a load_plugin_textdomain() para que los ficheros .mo incluidos en /languages/ se carguen cuando se instala el plugin desde el zip de release (antes solo se aplicaban las traducciones publicadas en translate.wordpress.org)
+* I18N: Los cinco idiomas incluidos (es_ES, ca, eu, fr_FR, gl_ES) están ahora al 100% de cobertura — las traducciones asistidas por máquina para ca/eu/fr_FR/gl_ES se irán puliendo por la comunidad de GlotPress con el tiempo
+
+= 1.9.5 =
+* NUEVO: Panel de diagnóstico del feed en la página de Operación (edad y tamaño del data.json local, estado de la última descarga remota, número de IPs con bloqueo activo)
+* NUEVO: Botón "Borrar caché local (data.json)" para forzar una nueva descarga limpia en la siguiente comprobación
+* NUEVO: Ajuste de umbral de obsolescencia (1-72h, por defecto 6h) — los estados "bloqueado" cuyo último stateChange sea anterior a este plazo se tratan como no bloqueados, evitando que registros huérfanos mantengan el bypass activo indefinidamente. Sobrescribible vía filtro cfbcolorvivo_stale_threshold_seconds
+* NUEVO: Ajuste "ISPs mínimos con bloqueo" (1-20, por defecto 2) — el bypass general solo se activa cuando al menos N proveedores distintos reportan bloqueos a la vez, reduciendo falsos positivos por incidentes aislados de un solo ISP. Si el feed no publica información por ISP, se mantiene el comportamiento clásico. Sobrescribible vía filtro cfbcolorvivo_min_isps_blocked
+* NUEVO: El panel de diagnóstico del feed ahora lista los ISPs con bloqueos activos e indica si superan el umbral configurado
+* NUEVO: Notificaciones por email opcionales al administrador cuando el bypass se activa/desactiva automáticamente, con throttle de 2 minutos para evitar ráfagas. Desactivadas por defecto. Sobrescribible vía filtro cfbcolorvivo_email_throttle_seconds
+* NUEVO: Ajuste de modo de interfaz — "Simple" oculta el panel de diagnóstico, la pestaña de logs y la consola técnica para usuarios no técnicos, dejando solo el estado de bloqueo y los botones manuales de proxy ON/OFF. "Avanzado" muestra todo como antes. Las nuevas instalaciones arrancan en Simple; al actualizar desde 1.9.x o anteriores se mantiene la experiencia Avanzada automáticamente
+* NUEVO: La configuración del cron externo muestra ahora la URL completa a consultar y un ejemplo de línea crontab lista para copiar, usando tu intervalo de comprobación actual
+* NUEVO: Ajuste "Eliminar datos al desinstalar" — desmárcalo para conservar configuración, credenciales y logs entre reinstalaciones. El hook de cron y los transients efímeros se limpian siempre independientemente de este ajuste
+* SEGURIDAD: Cabecera Update URI añadida para que las actualizaciones solo provengan de WordPress.org (previene el secuestro del slug desde fuentes externas)
+* RENDIMIENTO: get_settings() memoizado por petición, evitando normalizar repetidamente en la misma carga de página
+* FIX: Se registra en el log cuando dns_get_record() falla para el dominio del sitio
+* FIX: Los errores al parsear DateTime al comparar lastUpdate ahora se registran en lugar de silenciarse
+* FIX: Aviso en el log cuando el JSON de hayahora.futbol tiene una estructura inesperada (sin lastUpdate ni claves de IPs conocidas)
+* CÓDIGO: El parseo de stateChanges, antes duplicado en tres lugares, se ha refactorizado en un solo helper latest_state_from_changes()
+* UI: Eliminada la opción "Reset settings" — desinstalar el plugin (con "Eliminar datos al desinstalar" marcado, que es lo predeterminado) deja la configuración igual de limpia y evita duplicar la acción destructiva
+
 = 1.9.2 =
 * I18N: Idioma fuente refactorizado al inglés (antes era castellano), alineado con la convención de traducción de WordPress.org
 * I18N: Nuevo es_ES.po con el 100% de las traducciones al castellano incluidas (sin cambios funcionales para los usuarios en castellano)
@@ -285,6 +321,12 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 * Sistema de cron integrado
 
 == Upgrade Notice ==
+
+= 1.9.6 =
+Release de UX: nueva página "¿Hay fútbol ahora?" con SÍ/NO rápido, destinatario de avisos por email configurable, y página de Configuración reorganizada en secciones (las Opciones avanzadas se ocultan en modo Simple).
+
+= 1.9.5 =
+Release mayor de calidad: modos de interfaz simple/avanzado (el simple oculta logs y diagnóstico técnico para sitios de clientes), notificaciones por email opcionales en cambios automáticos del bypass, umbral de obsolescencia y ISPs mínimos para reducir falsos positivos, panel de diagnóstico del feed, botón para borrar caché local, UI mejorada del cron externo y toggle "Eliminar datos al desinstalar". Los upgrades mantienen la experiencia Avanzada; las nuevas instalaciones arrancan en Simple.
 
 = 1.9.2 =
 Refactor i18n: idioma fuente cambiado a inglés (convención de WordPress.org). Los usuarios en castellano no notan ningún cambio (es_ES.po incluido al 100%). Traducciones de catalán, vasco, francés y gallego completadas.
