@@ -3,11 +3,10 @@
 # This file is distributed under the GPL v2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: ES Football Bypass for Cloudflare 1.9.5\n"
-"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/es-football-"
-"bypass-for-cloudflare\n"
-"POT-Creation-Date: 2026-04-17T22:08:52+00:00\n"
-"PO-Revision-Date: 2026-04-08 07:42+0000\n"
+"Project-Id-Version: ES Football Bypass for Cloudflare 1.9.6\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/es-football-bypass-for-cloudflare\n"
+"POT-Creation-Date: 2026-04-18T08:31:42+00:00\n"
+"PO-Revision-Date: 2026-04-18 08:45+0000\n"
 "Last-Translator: David Carrero Fernandez-Baillo <david@carrero.es>\n"
 "Language-Team: Catalan <ca@li.org>\n"
 "Language: ca\n"
@@ -25,7 +24,7 @@ msgstr "ES Football Bypass for Cloudflare"
 #. Plugin URI of the plugin
 #: es-football-bypass.php
 msgid "https://github.com/dcarrero/cf-football-bypass"
-msgstr ""
+msgstr "https://github.com/dcarrero/cf-football-bypass"
 
 #. Description of the plugin
 #: es-football-bypass.php
@@ -46,105 +45,134 @@ msgstr "David Carrero Fernandez-Baillo"
 #. Author URI of the plugin
 #: es-football-bypass.php
 msgid "https://carrero.es"
-msgstr ""
+msgstr "https://carrero.es"
 
-#: es-football-bypass.php:636
+#: es-football-bypass.php:656
 msgid "Invalid token"
 msgstr "Token no vàlid"
 
-#: es-football-bypass.php:637
+#: es-football-bypass.php:657
 msgid "Access denied"
 msgstr "Accés denegat"
 
-#: es-football-bypass.php:1164
+#: es-football-bypass.php:895 es-football-bypass.php:1723
+msgid "Is there football now?"
+msgstr "Hi ha futbol ara?"
+
+#: es-football-bypass.php:1191 es-football-bypass.php:1192
+msgid "Interface mode"
+msgstr "Mode d'interfície"
+
+#: es-football-bypass.php:1195
 msgid "Cloudflare Credentials"
 msgstr "Credencials de Cloudflare"
 
-#: es-football-bypass.php:1165
+#: es-football-bypass.php:1196
 msgid "Authentication type"
 msgstr "Tipus d'autenticació"
 
-#: es-football-bypass.php:1166
+#: es-football-bypass.php:1197
 msgid "Email (Global API Key only)"
 msgstr "Email (només Global API Key)"
 
-#: es-football-bypass.php:1167
+#: es-football-bypass.php:1198
 msgid "Global API Key or Token"
 msgstr "API Key Global o Token"
 
-#: es-football-bypass.php:1168
+#: es-football-bypass.php:1199
 msgid "Zone ID"
 msgstr "Zone ID"
 
-#: es-football-bypass.php:1169
+#: es-football-bypass.php:1200
 msgid "Account ID (Account Token only)"
 msgstr "Account ID (només Account Token)"
 
-#: es-football-bypass.php:1170
+#: es-football-bypass.php:1201
 msgid "Server outgoing IP"
 msgstr "IP de sortida del servidor"
 
-#: es-football-bypass.php:1172
-msgid "Plugin Settings"
-msgstr "Configuració del plugin"
+#: es-football-bypass.php:1204
+msgid "Bypass behavior"
+msgstr "Comportament del bypass"
 
-#: es-football-bypass.php:1173
-msgid "Interface mode"
-msgstr ""
-
-#: es-football-bypass.php:1174
-msgid "Check interval (minutes)"
-msgstr "Interval de comprovació (minuts)"
-
-#: es-football-bypass.php:1175
-msgid "Cooldown after disabling Cloudflare (min)"
-msgstr "Interval després de desactivar Cloudflare (min)"
-
-#: es-football-bypass.php:1176
-msgid "Staleness threshold (hours)"
-msgstr ""
-
-#: es-football-bypass.php:1177
-msgid "Minimum ISPs with blocks"
-msgstr ""
-
-#: es-football-bypass.php:1178
-msgid "Email notifications"
-msgstr ""
-
-#: es-football-bypass.php:1179
+#: es-football-bypass.php:1205
 msgid "Force Proxy OFF during football"
 msgstr "Forçar Proxy OFF durant el futbol"
 
-#: es-football-bypass.php:1180
+#: es-football-bypass.php:1206
+msgid "Check interval (minutes)"
+msgstr "Interval de comprovació (minuts)"
+
+#: es-football-bypass.php:1207
+msgid "Cooldown after disabling Cloudflare (min)"
+msgstr "Interval després de desactivar Cloudflare (min)"
+
+#: es-football-bypass.php:1208
+msgid "Minimum ISPs with blocks"
+msgstr "ISPs mínims amb bloqueig"
+
+#: es-football-bypass.php:1209
 msgid "DNS records to manage (loaded in Operation)"
 msgstr "Registres DNS a gestionar (es carreguen a Operació)"
 
-#: es-football-bypass.php:1181
+#: es-football-bypass.php:1212
+msgid "Email notifications"
+msgstr "Avisos per correu electrònic"
+
+#: es-football-bypass.php:1213
+msgid "Enable email notifications"
+msgstr "Activar avisos per correu electrònic"
+
+#: es-football-bypass.php:1214
+msgid "Notifications recipient"
+msgstr "Destinatari dels avisos"
+
+#: es-football-bypass.php:1217
+msgid "Uninstall"
+msgstr "En desinstal·lar"
+
+#: es-football-bypass.php:1218
+msgid "Delete data on uninstall"
+msgstr "Eliminar dades en desinstal·lar"
+
+#: es-football-bypass.php:1222
+msgid "Advanced options"
+msgstr "Opcions avançades"
+
+#: es-football-bypass.php:1223
+msgid "Staleness threshold (hours)"
+msgstr "Llindar d'obsolescència (hores)"
+
+#: es-football-bypass.php:1224
 msgid "Action logging"
 msgstr "Registre d'accions"
 
-#: es-football-bypass.php:1182
+#: es-football-bypass.php:1225
 msgid "Log retention (days)"
 msgstr "Retenció de logs (dies)"
 
-#: es-football-bypass.php:1183
+#: es-football-bypass.php:1226
 msgid "External cron token"
 msgstr "Token per a cron extern"
 
-#: es-football-bypass.php:1184
-msgid "Delete data on uninstall"
+#: es-football-bypass.php:1232
+msgid ""
+"Technical options. The defaults work fine for most sites — only touch these "
+"if you need to fine-tune behavior or you are diagnosing a problem."
 msgstr ""
+"Opcions tècniques. Els valors per defecte funcionen bé a la majoria de llocs "
+"— només toca-les si necessites ajustar el comportament o estàs diagnosticant "
+"un problema."
 
-#: es-football-bypass.php:1308
+#: es-football-bypass.php:1364
 msgid "Connection OK:"
 msgstr "Connexió OK:"
 
-#: es-football-bypass.php:1313
+#: es-football-bypass.php:1369
 msgid "Connection error:"
 msgstr "Error de connexió:"
 
-#: es-football-bypass.php:1363
+#: es-football-bypass.php:1419
 msgid ""
 "Saving automatically verifies the connection and permissions (does not alter "
 "your DNS cache)."
@@ -152,61 +180,61 @@ msgstr ""
 "En desar es verifica automàticament la connexió i els permisos (no altera la "
 "memòria cau de DNS)."
 
-#: es-football-bypass.php:1373
+#: es-football-bypass.php:1429
 msgid "Console:"
 msgstr "Consola:"
 
-#: es-football-bypass.php:1374
+#: es-football-bypass.php:1430
 msgid "⏳ Wait a few seconds for the operation to complete…"
 msgstr "⏳ Espera uns segons perquè es completi l'operació…"
 
-#: es-football-bypass.php:1398
+#: es-football-bypass.php:1454
 msgid "Active"
 msgstr "Actiu"
 
-#: es-football-bypass.php:1398
+#: es-football-bypass.php:1454
 msgid "Disabled"
 msgstr "Desactivat"
 
 #. translators: %d is the number of days for log retention.
-#: es-football-bypass.php:1400
+#: es-football-bypass.php:1456
 #, php-format
 msgid "Retention: %d days."
 msgstr "Retenció: %d dies."
 
-#: es-football-bypass.php:1402
+#: es-football-bypass.php:1458
 msgid "Logging is disabled. Enable it in the Settings tab."
 msgstr "El registre està desactivat. Activa'l a la pestanya de Configuració."
 
-#: es-football-bypass.php:1406
+#: es-football-bypass.php:1462
 msgid "No events recorded yet."
 msgstr "Encara no hi ha esdeveniments registrats."
 
-#: es-football-bypass.php:1408
+#: es-football-bypass.php:1464
 msgid "The log file exists but contains no recent events."
 msgstr "El fitxer de log existeix però no conté esdeveniments recents."
 
-#: es-football-bypass.php:1413
+#: es-football-bypass.php:1469
 msgid "Date"
 msgstr "Data"
 
-#: es-football-bypass.php:1413
+#: es-football-bypass.php:1469
 msgid "Type"
 msgstr "Tipus"
 
-#: es-football-bypass.php:1413
+#: es-football-bypass.php:1469
 msgid "Message"
 msgstr "Missatge"
 
-#: es-football-bypass.php:1413
+#: es-football-bypass.php:1469
 msgid "Context"
 msgstr "Context"
 
-#: es-football-bypass.php:1427
+#: es-football-bypass.php:1483
 msgid "Showing the 250 most recent events."
 msgstr "Es mostren els 250 esdeveniments més recents."
 
-#: es-football-bypass.php:1442
+#: es-football-bypass.php:1498
 msgid ""
 "Global API Key requires email. User tokens are in My Profile. Account tokens "
 "are in Manage Account > Account API Tokens (requires Super Administrator). "
@@ -217,11 +245,11 @@ msgstr ""
 "(requereix Super Administrator). Permisos mínims: Zone:Read, DNS:Read, "
 "DNS:Edit."
 
-#: es-football-bypass.php:1459
+#: es-football-bypass.php:1515
 msgid "Never shown in traces or console."
 msgstr "Mai es mostra en traces ni a la consola."
 
-#: es-football-bypass.php:1474
+#: es-football-bypass.php:1530
 msgid ""
 "Required only for account tokens. You can find it in the URL of the "
 "Cloudflare dashboard: dash.cloudflare.com/ACCOUNT_ID"
@@ -229,11 +257,11 @@ msgstr ""
 "Obligatori només per a tokens de compte. El trobaràs a l'URL del tauler de "
 "Cloudflare: dash.cloudflare.com/ACCOUNT_ID"
 
-#: es-football-bypass.php:1481
+#: es-football-bypass.php:1537
 msgid "Could not be detected"
 msgstr "No s'ha pogut detectar"
 
-#: es-football-bypass.php:1482
+#: es-football-bypass.php:1538
 msgid ""
 "The server outgoing IP could not be determined. Verify that the server has "
 "Internet access."
@@ -241,7 +269,7 @@ msgstr ""
 "No s'ha pogut determinar la IP de sortida del servidor. Comprova que el "
 "servidor tingui accés a Internet."
 
-#: es-football-bypass.php:1485
+#: es-football-bypass.php:1541
 msgid ""
 "This is the IP your server uses to communicate with the Cloudflare API. You "
 "can restrict your API Token to this IP for added security."
@@ -250,7 +278,7 @@ msgstr ""
 "Cloudflare. Pots restringir el teu API Token a aquesta IP per a més "
 "seguretat."
 
-#: es-football-bypass.php:1493
+#: es-football-bypass.php:1549
 msgid ""
 "Multiple outgoing IPs have been detected. Your server may use any of them to "
 "communicate with the Cloudflare API. Add all of them when restricting your "
@@ -260,7 +288,7 @@ msgstr ""
 "qualsevol d'elles per comunicar-se amb l'API de Cloudflare. Afegeix-les "
 "totes quan restringeixis el teu API Token."
 
-#: es-football-bypass.php:1507
+#: es-football-bypass.php:1563
 msgid ""
 "Select the records to manage in the <strong>Operation</strong> tab (using "
 "the cache)."
@@ -268,7 +296,7 @@ msgstr ""
 "Marca els registres a gestionar a la pestanya <strong>Operació</strong> "
 "(utilitzant la memòria cau)."
 
-#: es-football-bypass.php:1518
+#: es-football-bypass.php:1574
 msgid ""
 "Minutes that must pass after disabling Cloudflare before checking if it can "
 "be reactivated (5-1440)."
@@ -276,52 +304,84 @@ msgstr ""
 "Minuts que han de passar després de desactivar Cloudflare abans de tornar a "
 "comprovar si es pot reactivar (5-1440)."
 
-#: es-football-bypass.php:1530
+#: es-football-bypass.php:1586
 msgid ""
 "Ignore \"blocked\" states whose most recent stateChange in hayahora.futbol "
 "is older than this (1-72 hours, default 6). Prevents orphan records from "
 "keeping the bypass active indefinitely when a close event was never "
 "published."
 msgstr ""
+"Ignora els estats «bloquejat» el stateChange més recent dels quals a "
+"hayahora.futbol sigui anterior a aquest termini (1-72 hores, per defecte 6). "
+"Evita que registres orfes mantinguin el bypass actiu indefinidament quan no "
+"s'ha publicat mai l'esdeveniment de tancament."
 
-#: es-football-bypass.php:1538
+#: es-football-bypass.php:1594
 msgid "Simple (recommended for clients)"
-msgstr ""
+msgstr "Simple (recomanat per a clients)"
 
-#: es-football-bypass.php:1539
-msgid "Advanced (show diagnostics, logs and technical details)"
+#: es-football-bypass.php:1595
+msgid "Advanced (show diagnostics, logs, cron settings and technical details)"
 msgstr ""
+"Avançat (mostrar diagnòstic, logs, configuració de cron i detalls tècnics)"
 
-#: es-football-bypass.php:1540
+#: es-football-bypass.php:1596
 msgid ""
-"Simple mode hides the feed diagnostics panel, the logs tab and the technical "
-"console — leaving only the block status and the manual proxy ON/OFF buttons. "
-"Logs are still written to disk: switch to Advanced temporarily if you need "
-"to diagnose a problem."
+"Simple mode hides the feed diagnostics panel, the logs tab, the technical "
+"console and the advanced options (staleness threshold, log retention and "
+"external cron token) — leaving only the block status, the manual proxy ON/"
+"OFF buttons and the basic email notifications. Logs are still written to "
+"disk: switch to Advanced temporarily if you need to diagnose a problem or "
+"configure an external cron."
 msgstr ""
+"El mode simple amaga el panell de diagnòstic del feed, la pestanya de logs, "
+"la consola tècnica i les opcions avançades (llindar d'obsolescència, "
+"retenció de logs i token de cron extern), deixant només l'estat de bloqueig, "
+"els botons manuals de proxy ON/OFF i els avisos per correu bàsics. Els logs "
+"es continuen escrivint al disc: canvia a Avançat temporalment si necessites "
+"diagnosticar un problema o configurar un cron extern."
 
-#: es-football-bypass.php:1549
+#: es-football-bypass.php:1604
+msgid "Send an email when the bypass turns on or off automatically"
+msgstr "Enviar un correu quan el bypass s'activi o es desactivi automàticament"
+
+#: es-football-bypass.php:1605
 msgid ""
-"Send an email to the site admin when the bypass turns on or off automatically"
+"Emails are sent only on actual state changes from the cron (not on manual "
+"override). A 2-minute throttle prevents bursts if the feed oscillates."
 msgstr ""
+"Els correus s'envien només quan hi ha un canvi real d'estat pel cron (no en "
+"forçament manual). Un throttle de 2 minuts evita ràfegues si el feed "
+"oscil·la."
 
-#. translators: %s is the admin email address.
-#: es-football-bypass.php:1551
+#. translators: %s is the site administrator email address.
+#: es-football-bypass.php:1620
 #, php-format
 msgid ""
-"Emails are sent to %s only on actual state changes from the cron (not on "
-"manual override). A 2-minute throttle prevents bursts if the feed oscillates."
+"Optional. Leave empty to use the site administrator address (%s). Set a "
+"different address here to send notifications elsewhere — useful when the "
+"plugin is managed by an agency or support team and the site admin is the "
+"final client."
 msgstr ""
+"Opcional. Deixa-ho buit per usar l'adreça de l'administrador del lloc (%s). "
+"Posa una adreça diferent aquí perquè els avisos arribin a un altre "
+"destinatari — útil quan una agència o un equip de suport gestiona el plugin "
+"i l'admin del lloc és el client final."
 
-#: es-football-bypass.php:1563
+#: es-football-bypass.php:1632
 msgid ""
 "Minimum number of distinct ISPs (providers) with currently blocked IPs "
 "needed to consider there is a real mass block (1-20, default 2). Lower "
 "values are more sensitive; 1 triggers on any single-ISP glitch. Only applies "
 "when the feed publishes ISP information; ignored otherwise."
 msgstr ""
+"Nombre mínim de proveïdors (ISPs) diferents amb IPs actualment bloquejades "
+"necessaris per considerar que hi ha un bloqueig massiu real (1-20, per "
+"defecte 2). Valors baixos són més sensibles; 1 s'activa davant d'una fallada "
+"d'un sol ISP. Només s'aplica quan el feed publica informació per ISP; "
+"altrament s'ignora."
 
-#: es-football-bypass.php:1570
+#: es-football-bypass.php:1639
 msgid ""
 "Disable Proxy during football (General=YES), without waiting for this domain "
 "detection"
@@ -329,7 +389,7 @@ msgstr ""
 "Desactivar Proxy quan hi ha futbol (General=SÍ), sense esperar detecció "
 "d'aquest domini"
 
-#: es-football-bypass.php:1571
+#: es-football-bypass.php:1640
 msgid ""
 "IMPORTANT: With this option enabled, the proxy will be automatically "
 "disabled when hayahora.futbol indicates active blocks (General=YES), even if "
@@ -340,7 +400,7 @@ msgstr ""
 "(General=SÍ), encara que el teu domini específic no s'hagi detectat com a "
 "bloquejat."
 
-#: es-football-bypass.php:1572
+#: es-football-bypass.php:1641
 msgid ""
 "Useful to avoid false negatives when you know your site is blocked during "
 "football events but IP detection doesn't always work correctly."
@@ -349,11 +409,11 @@ msgstr ""
 "durant esdeveniments de futbol però la detecció d'IP no sempre funciona "
 "correctament."
 
-#: es-football-bypass.php:1579
+#: es-football-bypass.php:1648
 msgid "Save actions to log (cron and manual)"
 msgstr "Desar accions al registre (cron i manuals)"
 
-#: es-football-bypass.php:1580
+#: es-football-bypass.php:1649
 msgid ""
 "Logs are stored in the uploads directory, protected with .htaccess, and "
 "displayed in the Logs tab."
@@ -361,35 +421,40 @@ msgstr ""
 "Els registres es desen al directori uploads, protegits amb .htaccess, i es "
 "mostren a la pestanya Logs."
 
-#: es-football-bypass.php:1591
+#: es-football-bypass.php:1660
 msgid "Number of days to keep logs (minimum 1)."
 msgstr "Nombre de dies a conservar registres (mínim 1)."
 
-#: es-football-bypass.php:1606
+#: es-football-bypass.php:1675
 msgid ""
 "Optional. Use a real server cron when WP-Cron is unreliable (low-traffic "
 "sites, hosts that disable it). Leave empty to disable the external endpoint."
 msgstr ""
+"Opcional. Utilitza un cron real del servidor quan WP-Cron no sigui fiable "
+"(llocs amb poc trànsit, allotjaments que el desactiven). Deixa-ho buit per "
+"desactivar l'endpoint extern."
 
-#: es-football-bypass.php:1609
+#: es-football-bypass.php:1678
 msgid "URL to request:"
-msgstr ""
+msgstr "URL a consultar:"
 
-#: es-football-bypass.php:1613
+#: es-football-bypass.php:1682
 msgid "Crontab example (server cron):"
-msgstr ""
+msgstr "Exemple de crontab (cron del servidor):"
 
-#: es-football-bypass.php:1617
+#: es-football-bypass.php:1686
 msgid "To regenerate the token, empty the field and save."
-msgstr ""
+msgstr "Per regenerar el token, buida el camp i desa."
 
-#: es-football-bypass.php:1624
+#: es-football-bypass.php:1693
 msgid ""
 "Delete all plugin data when this plugin is uninstalled from Plugins → "
 "Installed Plugins → Delete"
 msgstr ""
+"Esborrar totes les dades del plugin quan es desinstal·li des de Plugins → "
+"Plugins instal·lats → Suprimir"
 
-#: es-football-bypass.php:1625
+#: es-football-bypass.php:1694
 msgid ""
 "Only applies at uninstall time, not when the plugin is deactivated. When "
 "checked (default), uninstalling removes settings, Cloudflare credentials, "
@@ -397,13 +462,76 @@ msgid ""
 "keep the configuration. The scheduled cron and temporary caches are always "
 "cleaned up regardless of this setting."
 msgstr ""
+"Només s'aplica en desinstal·lar, no en desactivar. Si està marcat (per "
+"defecte), en desinstal·lar s'esborren la configuració, les credencials de "
+"Cloudflare, la memòria cau DNS i els logs. Desmarca'l si planeges "
+"reinstal·lar després i vols conservar la configuració. El cron programat i "
+"les memòries cau temporals es netegen sempre, independentment d'aquest ajust."
 
-#: es-football-bypass.php:1643
+#: es-football-bypass.php:1716
+msgid "YES"
+msgstr "SÍ"
+
+#: es-football-bypass.php:1716
+msgid "NO"
+msgstr "NO"
+
+#: es-football-bypass.php:1719
+msgid ""
+"Right now there are active IP blocks linked to La Liga matches. Your site "
+"may be affected."
+msgstr ""
+"Ara mateix hi ha bloquejos d'IP actius vinculats a partits de La Liga. El "
+"teu lloc pot estar afectat."
+
+#: es-football-bypass.php:1720
+msgid ""
+"Right now no IP blocks linked to La Liga matches are detected. Everything "
+"normal."
+msgstr ""
+"Ara mateix no es detecten bloquejos d'IP vinculats a partits de La Liga. Tot "
+"normal."
+
+#. translators: %s is a date/time like "2026-04-17 22:03:45".
+#: es-football-bypass.php:1729
+#, php-format
+msgid "Last update: %s"
+msgstr "Última actualització: %s"
+
+#: es-football-bypass.php:1731
+msgid "Affected ISPs:"
+msgstr "ISPs afectats:"
+
+#: es-football-bypass.php:1736
+msgid "Where this data comes from"
+msgstr "D'on surten aquestes dades"
+
+#. translators: %s is a link to hayahora.futbol.
+#: es-football-bypass.php:1739
+#, php-format
+msgid ""
+"The answer above comes from the public feed published by %s, which monitors "
+"IP blocks ordered during La Liga football matches in Spain from several "
+"Spanish ISPs (DIGI, Movistar, Orange, Masmovil…)."
+msgstr ""
+"La resposta de dalt ve del feed públic publicat per %s, que monitora els "
+"bloquejos d'IP ordenats durant partits de futbol de La Liga a Espanya des de "
+"diversos ISPs espanyols (DIGI, Movistar, Orange, Masmovil…)."
+
+#: es-football-bypass.php:1742
+msgid ""
+"The feed URL is https://hayahora.futbol/estado/data.json and is consulted "
+"automatically each time this page is opened."
+msgstr ""
+"La URL del feed és https://hayahora.futbol/estado/data.json i es consulta "
+"automàticament cada vegada que s'obre aquesta pàgina."
+
+#: es-football-bypass.php:1763
 msgid "Local environment detected"
 msgstr "Entorn local detectat"
 
 #. translators: %s is the detected domain
-#: es-football-bypass.php:1646
+#: es-football-bypass.php:1766
 #, php-format
 msgid ""
 "The current domain is %s, which corresponds to a local environment or an IP "
@@ -415,7 +543,7 @@ msgstr ""
 "funcionar correctament (resolució DNS, API de Cloudflare i comprovació de "
 "bloquejos)."
 
-#: es-football-bypass.php:1649
+#: es-football-bypass.php:1769
 msgid ""
 "Install the plugin on your production or staging site with a real domain to "
 "use it."
@@ -423,96 +551,111 @@ msgstr ""
 "Instal·la el plugin al teu lloc de producció o staging amb un domini real "
 "per fer-lo servir."
 
-#: es-football-bypass.php:1651
+#: es-football-bypass.php:1771
 msgid "Go to Settings"
 msgstr "Vés a Configuració"
 
 #. translators: %s is the site name.
-#: es-football-bypass.php:3117
+#: es-football-bypass.php:3238
 #, php-format
 msgid "[%s] Cloudflare proxy disabled due to football blocks"
-msgstr ""
+msgstr "[%s] Proxy de Cloudflare desactivat per bloquejos del futbol"
 
-#: es-football-bypass.php:3118
+#: es-football-bypass.php:3239
 msgid ""
 "Hello,\n"
 "\n"
 "Active IP blocks from La Liga have been detected and the Cloudflare proxy "
 "has been automatically disabled on the configured DNS records."
 msgstr ""
+"Hola,\n"
+"\n"
+"S'han detectat bloquejos d'IP actius per part de La Liga i el proxy de "
+"Cloudflare s'ha desactivat automàticament als registres DNS configurats."
 
 #. translators: %s is the site name.
-#: es-football-bypass.php:3119 es-football-bypass.php:3133
+#: es-football-bypass.php:3240 es-football-bypass.php:3254
 #, php-format
 msgid "Site: %s"
-msgstr ""
+msgstr "Lloc: %s"
 
 #. translators: %s is the site URL.
-#: es-football-bypass.php:3120 es-football-bypass.php:3134
+#: es-football-bypass.php:3241 es-football-bypass.php:3255
 #, php-format
 msgid "URL: %s"
-msgstr ""
+msgstr "URL: %s"
 
 #. translators: %s is the site URL.
-#: es-football-bypass.php:3121
+#: es-football-bypass.php:3242
 msgid "State: Proxy OFF (DNS Only)"
-msgstr ""
+msgstr "Estat: Proxy OFF (DNS Only)"
 
 #. translators: %s is the internal reason code.
-#: es-football-bypass.php:3123
+#: es-football-bypass.php:3244
 #, php-format
 msgid "Reason: %s"
-msgstr ""
+msgstr "Motiu: %s"
 
-#: es-football-bypass.php:3125
+#: es-football-bypass.php:3246
 msgid ""
 "The selected DNS records have switched from Proxied (CDN) to DNS Only so "
 "your site remains reachable during the blocks."
 msgstr ""
+"Els registres DNS seleccionats han passat de Proxied (CDN) a DNS Only perquè "
+"el teu lloc continuï sent accessible durant els bloquejos."
 
-#: es-football-bypass.php:3126
+#: es-football-bypass.php:3247
 msgid ""
 "The proxy will be re-enabled automatically once the blocks end and the "
 "configured cooldown passes."
 msgstr ""
+"El proxy es reactivarà automàticament quan acabin els bloquejos i passi el "
+"període d'espera configurat."
 
 #. translators: %s is the plugin Operation page URL.
-#: es-football-bypass.php:3127 es-football-bypass.php:3137
+#: es-football-bypass.php:3248 es-football-bypass.php:3258
 #, php-format
 msgid "Current status: %s"
-msgstr ""
+msgstr "Estat actual: %s"
 
 #. translators: %s is the plugin version.
-#: es-football-bypass.php:3128 es-football-bypass.php:3138
-#, fuzzy, php-format
-#| msgid "ES Football Bypass for Cloudflare"
+#: es-football-bypass.php:3249 es-football-bypass.php:3259
+#, php-format
 msgid "ES Football Bypass for Cloudflare v%s"
-msgstr "ES Football Bypass for Cloudflare"
+msgstr "ES Football Bypass for Cloudflare v%s"
 
 #. translators: %s is the site name.
-#: es-football-bypass.php:3131
-#, fuzzy, php-format
-#| msgid "Cloudflare Credentials"
+#: es-football-bypass.php:3252
+#, php-format
 msgid "[%s] Cloudflare proxy re-enabled"
-msgstr "Credencials de Cloudflare"
+msgstr "[%s] Proxy de Cloudflare reactivat"
 
-#: es-football-bypass.php:3132
+#: es-football-bypass.php:3253
 msgid ""
 "Hello,\n"
 "\n"
 "No active La Liga IP blocks are detected. The Cloudflare proxy has been re-"
 "enabled automatically."
 msgstr ""
+"Hola,\n"
+"\n"
+"No es detecten bloquejos d'IP actius de La Liga. El proxy de Cloudflare s'ha "
+"reactivat automàticament."
 
 #. translators: %s is the site URL.
-#: es-football-bypass.php:3135
+#: es-football-bypass.php:3256
 msgid "State: Proxy ON (CDN)"
-msgstr ""
+msgstr "Estat: Proxy ON (CDN)"
 
-#: es-football-bypass.php:3136
+#: es-football-bypass.php:3257
 msgid ""
 "The selected DNS records are back on Proxied (CDN). Normal operation resumed."
 msgstr ""
+"Els registres DNS seleccionats han tornat a Proxied (CDN). Funcionament "
+"normal restablert."
+
+#~ msgid "Plugin Settings"
+#~ msgstr "Configuració del plugin"
 
 #~ msgid "Reset settings"
 #~ msgstr "Restablir configuració"

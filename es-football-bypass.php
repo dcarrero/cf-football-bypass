@@ -3,7 +3,7 @@
  * Plugin Name: ES Football Bypass for Cloudflare
  * Plugin URI: https://github.com/dcarrero/cf-football-bypass
  * Description: Operates with Cloudflare to toggle between Proxy (ON/CDN) and DNS Only (OFF) based on IP blocks, with persistent DNS cache and AJAX actions. Separate UI: Operation and Settings.
- * Version: 1.9.5
+ * Version: 1.9.6
  * Author: David Carrero Fernandez-Baillo
  * Author URI: https://carrero.es
  * License: GPL v2 or later
@@ -89,7 +89,9 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		$this->log_dir_path       = $this->plugin_upload_dir . '/logs';
 		$this->log_file_path      = $this->log_dir_path . '/cfbcolorvivo-actions.log';
 
-		// Traducciones se cargan automáticamente desde WordPress 4.6 para plugins en wordpress.org.
+		// Cargar traducciones: prioriza wp-content/languages/plugins/ (GlotPress/WP.org)
+		// y cae a /languages/ del plugin como fallback cuando se instala desde el zip.
+		add_action( 'init', array( $this, 'load_textdomain' ) );
 		add_action( 'updated_option', array( $this, 'handle_option_updated' ), 10, 3 );
 
 		add_action( 'admin_menu', array( $this, 'register_menus' ) );
@@ -115,6 +117,23 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 	}
 
 	/* ================== Utilidades ================== */
+
+	/**
+	 * Load plugin translations.
+	 *
+	 * WordPress automatically loads translations published on translate.wordpress.org
+	 * for plugins hosted on WP.org, but only from wp-content/languages/plugins/.
+	 * Calling load_plugin_textdomain() makes WP also look inside the plugin's own
+	 * /languages/ directory, which is what ships bundled in our release zip for
+	 * users who install without network access to the translation hub.
+	 */
+	public function load_textdomain() {
+		load_plugin_textdomain(
+			'es-football-bypass-for-cloudflare',
+			false,
+			dirname( plugin_basename( __FILE__ ) ) . '/languages'
+		);
+	}
 
 	/**
 	 * Initialize and return the WP_Filesystem instance.
@@ -395,6 +414,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			'stale_threshold_hours'    => 6,  // Ignorar estados "bloqueado" cuyo último stateChange sea más antiguo que N horas.
 			'min_isps_blocked'         => 2,  // Número mínimo de ISPs distintos con IPs bloqueadas para activar general_blocked.
 			'email_notifications'      => 0,  // Enviar email al admin cuando el bypass cambia de estado automáticamente.
+			'notification_email'       => '',  // Destinatario alternativo para avisos; vacío = usar admin_email del sitio.
 			'ui_mode'                  => 'simple',  // 'simple' (por defecto para nuevas) o 'advanced'.
 			'delete_data_on_uninstall' => 1,  // Si 0, conservar opciones y logs al desinstalar para facilitar reinstalaciones.
 		);
@@ -798,6 +818,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		$opt['force_proxy_off_override'] = ! empty( $opt['force_proxy_off_override'] ) ? 1 : 0;
 
 		$opt['email_notifications']      = ! empty( $opt['email_notifications'] ) ? 1 : 0;
+		$opt['notification_email']       = isset( $opt['notification_email'] ) ? sanitize_text_field( $opt['notification_email'] ) : '';
 		$opt['ui_mode']                  = isset( $opt['ui_mode'] ) && in_array( $opt['ui_mode'], array( 'simple', 'advanced' ), true ) ? $opt['ui_mode'] : 'simple';
 		$opt['delete_data_on_uninstall'] = isset( $opt['delete_data_on_uninstall'] ) ? ( ! empty( $opt['delete_data_on_uninstall'] ) ? 1 : 0 ) : 1;
 
@@ -871,6 +892,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			66
 		);
 		add_submenu_page( 'cfbcolorvivo-main', 'Operacion', 'Operación', 'manage_options', 'cfbcolorvivo-main', array( $this, 'render_main_page' ) );
+		add_submenu_page( 'cfbcolorvivo-main', 'Hay Futbol Ahora', __( 'Is there football now?', 'es-football-bypass-for-cloudflare' ), 'manage_options', 'cfbcolorvivo-now', array( $this, 'render_now_page' ) );
 		add_submenu_page( 'cfbcolorvivo-main', 'Configuracion', 'Configuración', 'manage_options', 'cfbcolorvivo-settings', array( $this, 'render_settings_page' ) );
 		// Ocultar pestaña de logs en modo simple (los logs siguen escribiéndose; se puede reactivar cambiando a modo avanzado).
 		$s = $this->get_settings();
@@ -893,7 +915,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		}
 
 		// Registrar script handle para asociar inline scripts.
-		wp_register_script( 'cfbcolorvivo-admin', false, array(), '1.9.5', true );
+		wp_register_script( 'cfbcolorvivo-admin', false, array(), '1.9.6', true );
 		wp_enqueue_script( 'cfbcolorvivo-admin' );
 
 		// Pasar datos al JavaScript.
@@ -1161,27 +1183,53 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			)
 		);
 
-		add_settings_section( 'cfbcolorvivo_cloudflare_section', __( 'Cloudflare Credentials', 'es-football-bypass-for-cloudflare' ), '__return_false', 'cfbcolorvivo_settings_page' );
-		add_settings_field( 'auth_type', __( 'Authentication type', 'es-football-bypass-for-cloudflare' ), array( $this, 'auth_type_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section' );
-		add_settings_field( 'cloudflare_email', __( 'Email (Global API Key only)', 'es-football-bypass-for-cloudflare' ), array( $this, 'email_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section' );
-		add_settings_field( 'cloudflare_api_key', __( 'Global API Key or Token', 'es-football-bypass-for-cloudflare' ), array( $this, 'api_key_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section' );
-		add_settings_field( 'cloudflare_zone_id', __( 'Zone ID', 'es-football-bypass-for-cloudflare' ), array( $this, 'zone_id_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section' );
-		add_settings_field( 'cloudflare_account_id', __( 'Account ID (Account Token only)', 'es-football-bypass-for-cloudflare' ), array( $this, 'account_id_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section' );
-		add_settings_field( 'server_outgoing_ip', __( 'Server outgoing IP', 'es-football-bypass-for-cloudflare' ), array( $this, 'server_outgoing_ip_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_cloudflare_section' );
+		$s          = $this->get_settings();
+		$is_advanced = ( ( $s['ui_mode'] ?? 'simple' ) === 'advanced' );
+		$page        = 'cfbcolorvivo_settings_page';
 
-		add_settings_section( 'cfbcolorvivo_plugin_section', __( 'Plugin Settings', 'es-football-bypass-for-cloudflare' ), '__return_false', 'cfbcolorvivo_settings_page' );
-		add_settings_field( 'ui_mode', __( 'Interface mode', 'es-football-bypass-for-cloudflare' ), array( $this, 'ui_mode_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section' );
-		add_settings_field( 'check_interval', __( 'Check interval (minutes)', 'es-football-bypass-for-cloudflare' ), array( $this, 'check_interval_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section' );
-		add_settings_field( 'bypass_check_cooldown', __( 'Cooldown after disabling Cloudflare (min)', 'es-football-bypass-for-cloudflare' ), array( $this, 'bypass_check_cooldown_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section' );
-		add_settings_field( 'stale_threshold_hours', __( 'Staleness threshold (hours)', 'es-football-bypass-for-cloudflare' ), array( $this, 'stale_threshold_hours_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section' );
-		add_settings_field( 'min_isps_blocked', __( 'Minimum ISPs with blocks', 'es-football-bypass-for-cloudflare' ), array( $this, 'min_isps_blocked_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section' );
-		add_settings_field( 'email_notifications', __( 'Email notifications', 'es-football-bypass-for-cloudflare' ), array( $this, 'email_notifications_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section' );
-		add_settings_field( 'force_proxy_off_override', __( 'Force Proxy OFF during football', 'es-football-bypass-for-cloudflare' ), array( $this, 'force_proxy_off_override_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section' );
-		add_settings_field( 'selected_records', __( 'DNS records to manage (loaded in Operation)', 'es-football-bypass-for-cloudflare' ), array( $this, 'selected_records_hint' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section' );
-		add_settings_field( 'logging_enabled', __( 'Action logging', 'es-football-bypass-for-cloudflare' ), array( $this, 'logging_enabled_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section' );
-		add_settings_field( 'log_retention_days', __( 'Log retention (days)', 'es-football-bypass-for-cloudflare' ), array( $this, 'log_retention_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section' );
-		add_settings_field( 'cron_secret', __( 'External cron token', 'es-football-bypass-for-cloudflare' ), array( $this, 'cron_secret_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section' );
-		add_settings_field( 'delete_data_on_uninstall', __( 'Delete data on uninstall', 'es-football-bypass-for-cloudflare' ), array( $this, 'delete_data_on_uninstall_render' ), 'cfbcolorvivo_settings_page', 'cfbcolorvivo_plugin_section' );
+		// Sección: Modo de interfaz (palanca maestra, siempre visible y al principio).
+		add_settings_section( 'cfbcolorvivo_ui_section', __( 'Interface mode', 'es-football-bypass-for-cloudflare' ), '__return_false', $page );
+		add_settings_field( 'ui_mode', __( 'Interface mode', 'es-football-bypass-for-cloudflare' ), array( $this, 'ui_mode_render' ), $page, 'cfbcolorvivo_ui_section' );
+
+		// Sección: Credenciales Cloudflare.
+		add_settings_section( 'cfbcolorvivo_cloudflare_section', __( 'Cloudflare Credentials', 'es-football-bypass-for-cloudflare' ), '__return_false', $page );
+		add_settings_field( 'auth_type', __( 'Authentication type', 'es-football-bypass-for-cloudflare' ), array( $this, 'auth_type_render' ), $page, 'cfbcolorvivo_cloudflare_section' );
+		add_settings_field( 'cloudflare_email', __( 'Email (Global API Key only)', 'es-football-bypass-for-cloudflare' ), array( $this, 'email_render' ), $page, 'cfbcolorvivo_cloudflare_section' );
+		add_settings_field( 'cloudflare_api_key', __( 'Global API Key or Token', 'es-football-bypass-for-cloudflare' ), array( $this, 'api_key_render' ), $page, 'cfbcolorvivo_cloudflare_section' );
+		add_settings_field( 'cloudflare_zone_id', __( 'Zone ID', 'es-football-bypass-for-cloudflare' ), array( $this, 'zone_id_render' ), $page, 'cfbcolorvivo_cloudflare_section' );
+		add_settings_field( 'cloudflare_account_id', __( 'Account ID (Account Token only)', 'es-football-bypass-for-cloudflare' ), array( $this, 'account_id_render' ), $page, 'cfbcolorvivo_cloudflare_section' );
+		add_settings_field( 'server_outgoing_ip', __( 'Server outgoing IP', 'es-football-bypass-for-cloudflare' ), array( $this, 'server_outgoing_ip_render' ), $page, 'cfbcolorvivo_cloudflare_section' );
+
+		// Sección: Comportamiento del bypass (lo esencial del día a día).
+		add_settings_section( 'cfbcolorvivo_bypass_section', __( 'Bypass behavior', 'es-football-bypass-for-cloudflare' ), '__return_false', $page );
+		add_settings_field( 'force_proxy_off_override', __( 'Force Proxy OFF during football', 'es-football-bypass-for-cloudflare' ), array( $this, 'force_proxy_off_override_render' ), $page, 'cfbcolorvivo_bypass_section' );
+		add_settings_field( 'check_interval', __( 'Check interval (minutes)', 'es-football-bypass-for-cloudflare' ), array( $this, 'check_interval_render' ), $page, 'cfbcolorvivo_bypass_section' );
+		add_settings_field( 'bypass_check_cooldown', __( 'Cooldown after disabling Cloudflare (min)', 'es-football-bypass-for-cloudflare' ), array( $this, 'bypass_check_cooldown_render' ), $page, 'cfbcolorvivo_bypass_section' );
+		add_settings_field( 'min_isps_blocked', __( 'Minimum ISPs with blocks', 'es-football-bypass-for-cloudflare' ), array( $this, 'min_isps_blocked_render' ), $page, 'cfbcolorvivo_bypass_section' );
+		add_settings_field( 'selected_records', __( 'DNS records to manage (loaded in Operation)', 'es-football-bypass-for-cloudflare' ), array( $this, 'selected_records_hint' ), $page, 'cfbcolorvivo_bypass_section' );
+
+		// Sección: Avisos por email.
+		add_settings_section( 'cfbcolorvivo_email_section', __( 'Email notifications', 'es-football-bypass-for-cloudflare' ), '__return_false', $page );
+		add_settings_field( 'email_notifications', __( 'Enable email notifications', 'es-football-bypass-for-cloudflare' ), array( $this, 'email_notifications_render' ), $page, 'cfbcolorvivo_email_section' );
+		add_settings_field( 'notification_email', __( 'Notifications recipient', 'es-football-bypass-for-cloudflare' ), array( $this, 'notification_email_render' ), $page, 'cfbcolorvivo_email_section' );
+
+		// Sección: Al desinstalar.
+		add_settings_section( 'cfbcolorvivo_uninstall_section', __( 'Uninstall', 'es-football-bypass-for-cloudflare' ), '__return_false', $page );
+		add_settings_field( 'delete_data_on_uninstall', __( 'Delete data on uninstall', 'es-football-bypass-for-cloudflare' ), array( $this, 'delete_data_on_uninstall_render' ), $page, 'cfbcolorvivo_uninstall_section' );
+
+		// Sección: Opciones avanzadas (solo visible en modo Advanced).
+		if ( $is_advanced ) {
+			add_settings_section( 'cfbcolorvivo_advanced_section', __( 'Advanced options', 'es-football-bypass-for-cloudflare' ), array( $this, 'advanced_section_intro' ), $page );
+			add_settings_field( 'stale_threshold_hours', __( 'Staleness threshold (hours)', 'es-football-bypass-for-cloudflare' ), array( $this, 'stale_threshold_hours_render' ), $page, 'cfbcolorvivo_advanced_section' );
+			add_settings_field( 'logging_enabled', __( 'Action logging', 'es-football-bypass-for-cloudflare' ), array( $this, 'logging_enabled_render' ), $page, 'cfbcolorvivo_advanced_section' );
+			add_settings_field( 'log_retention_days', __( 'Log retention (days)', 'es-football-bypass-for-cloudflare' ), array( $this, 'log_retention_render' ), $page, 'cfbcolorvivo_advanced_section' );
+			add_settings_field( 'cron_secret', __( 'External cron token', 'es-football-bypass-for-cloudflare' ), array( $this, 'cron_secret_render' ), $page, 'cfbcolorvivo_advanced_section' );
+		}
+	}
+
+	/** Intro text shown under the "Advanced options" section header. */
+	public function advanced_section_intro() {
+		echo '<p class="description">' . esc_html__( 'Technical options. The defaults work fine for most sites — only touch these if you need to fine-tune behavior or you are diagnosing a problem.', 'es-football-bypass-for-cloudflare' ) . '</p>';
 	}
 
 	/**
@@ -1238,6 +1286,14 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			$san['email_notifications'] = ! empty( $input['email_notifications'] ) ? 1 : 0;
 		} else {
 			$san['email_notifications'] = isset( $input['email_notifications'] ) ? (int) ! empty( $input['email_notifications'] ) : ( $existing['email_notifications'] ?? 0 );
+		}
+
+		$notif_email_raw = isset( $input['notification_email'] ) ? trim( (string) $input['notification_email'] ) : ( $existing['notification_email'] ?? '' );
+		if ( '' === $notif_email_raw ) {
+			$san['notification_email'] = '';
+		} else {
+			$clean = sanitize_email( $notif_email_raw );
+			$san['notification_email'] = is_email( $clean ) ? $clean : '';
 		}
 
 		$ui_mode_in      = isset( $input['ui_mode'] ) ? sanitize_text_field( $input['ui_mode'] ) : ( $existing['ui_mode'] ?? 'simple' );
@@ -1536,8 +1592,8 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		$val = isset( $s['ui_mode'] ) ? $s['ui_mode'] : 'simple';
 		?>
 		<label><input type="radio" name="<?php echo esc_attr( $this->option_name ); ?>[ui_mode]" value="simple" <?php checked( $val, 'simple' ); ?>> <?php esc_html_e( 'Simple (recommended for clients)', 'es-football-bypass-for-cloudflare' ); ?></label><br>
-		<label><input type="radio" name="<?php echo esc_attr( $this->option_name ); ?>[ui_mode]" value="advanced" <?php checked( $val, 'advanced' ); ?>> <?php esc_html_e( 'Advanced (show diagnostics, logs and technical details)', 'es-football-bypass-for-cloudflare' ); ?></label>
-		<p class="description"><?php esc_html_e( 'Simple mode hides the feed diagnostics panel, the logs tab and the technical console — leaving only the block status and the manual proxy ON/OFF buttons. Logs are still written to disk: switch to Advanced temporarily if you need to diagnose a problem.', 'es-football-bypass-for-cloudflare' ); ?></p>
+		<label><input type="radio" name="<?php echo esc_attr( $this->option_name ); ?>[ui_mode]" value="advanced" <?php checked( $val, 'advanced' ); ?>> <?php esc_html_e( 'Advanced (show diagnostics, logs, cron settings and technical details)', 'es-football-bypass-for-cloudflare' ); ?></label>
+		<p class="description"><?php esc_html_e( 'Simple mode hides the feed diagnostics panel, the logs tab, the technical console and the advanced options (staleness threshold, log retention and external cron token) — leaving only the block status, the manual proxy ON/OFF buttons and the basic email notifications. Logs are still written to disk: switch to Advanced temporarily if you need to diagnose a problem or configure an external cron.', 'es-football-bypass-for-cloudflare' ); ?></p>
 		<?php
 	}
 
@@ -1545,10 +1601,23 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 	public function email_notifications_render() {
 		$s       = $this->get_settings();
 		$checked = ! empty( $s['email_notifications'] ) ? 'checked' : '';
-		$admin   = get_option( 'admin_email' );
-		echo '<label><input type="checkbox" name="' . esc_attr( $this->option_name ) . '[email_notifications]" value="1" ' . esc_attr( $checked ) . '> ' . esc_html__( 'Send an email to the site admin when the bypass turns on or off automatically', 'es-football-bypass-for-cloudflare' ) . '</label>';
-		/* translators: %s is the admin email address. */
-		echo '<p class="description">' . sprintf( esc_html__( 'Emails are sent to %s only on actual state changes from the cron (not on manual override). A 2-minute throttle prevents bursts if the feed oscillates.', 'es-football-bypass-for-cloudflare' ), '<code>' . esc_html( $admin ) . '</code>' ) . '</p>';
+		echo '<label><input type="checkbox" name="' . esc_attr( $this->option_name ) . '[email_notifications]" value="1" ' . esc_attr( $checked ) . '> ' . esc_html__( 'Send an email when the bypass turns on or off automatically', 'es-football-bypass-for-cloudflare' ) . '</label>';
+		echo '<p class="description">' . esc_html__( 'Emails are sent only on actual state changes from the cron (not on manual override). A 2-minute throttle prevents bursts if the feed oscillates.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+	}
+
+	/** Render the notifications recipient email field. */
+	public function notification_email_render() {
+		$s     = $this->get_settings();
+		$val   = isset( $s['notification_email'] ) ? $s['notification_email'] : '';
+		$admin = get_option( 'admin_email' );
+		printf(
+			'<input type="email" name="%1$s[notification_email]" value="%2$s" class="regular-text" placeholder="%3$s" autocomplete="off" />',
+			esc_attr( $this->option_name ),
+			esc_attr( $val ),
+			esc_attr( $admin )
+		);
+		/* translators: %s is the site administrator email address. */
+		echo '<p class="description">' . sprintf( esc_html__( 'Optional. Leave empty to use the site administrator address (%s). Set a different address here to send notifications elsewhere — useful when the plugin is managed by an agency or support team and the site admin is the final client.', 'es-football-bypass-for-cloudflare' ), '<code>' . esc_html( $admin ) . '</code>' ) . '</p>';
 	}
 
 	/** Render the minimum-ISPs-with-blocks input field. */
@@ -1626,6 +1695,57 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 	}
 
 	/* ================== Render: Operación ================== */
+
+	/**
+	 * Render the "Is there football now?" page: a plain, client-friendly YES/NO
+	 * based on the hayahora.futbol feed — no Cloudflare credentials required,
+	 * no operations possible. Intended as a quick status check that anyone
+	 * (including non-technical clients) can open to know if there are active
+	 * La Liga IP blocks right now.
+	 */
+	public function render_now_page() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$calc       = $this->compute_statuses_from_json();
+		$is_blocked = ( 'SÍ' === ( $calc['general'] ?? 'NO' ) );
+		$last_upd   = ! empty( $calc['last_update'] ) ? $calc['last_update'] : '—';
+		$isps       = isset( $calc['isps_blocked'] ) && is_array( $calc['isps_blocked'] ) ? $calc['isps_blocked'] : array();
+
+		$label     = $is_blocked ? esc_html__( 'YES', 'es-football-bypass-for-cloudflare' ) : esc_html__( 'NO', 'es-football-bypass-for-cloudflare' );
+		$color     = $is_blocked ? '#b32d2e' : '#007017';
+		$subtitle  = $is_blocked
+			? esc_html__( 'Right now there are active IP blocks linked to La Liga matches. Your site may be affected.', 'es-football-bypass-for-cloudflare' )
+			: esc_html__( 'Right now no IP blocks linked to La Liga matches are detected. Everything normal.', 'es-football-bypass-for-cloudflare' );
+
+		echo '<div class="wrap">';
+		echo '<h1>' . esc_html__( 'Is there football now?', 'es-football-bypass-for-cloudflare' ) . '</h1>';
+
+		echo '<div style="background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:40px 30px;margin:20px 0;text-align:center;max-width:720px;">';
+		echo '<div style="font-size:96px;font-weight:700;line-height:1;color:' . esc_attr( $color ) . ';">' . $label . '</div>';
+		echo '<p style="font-size:16px;margin:18px 0 6px 0;">' . $subtitle . '</p>';
+		/* translators: %s is a date/time like "2026-04-17 22:03:45". */
+		echo '<p style="color:#666;font-size:13px;margin:0;">' . sprintf( esc_html__( 'Last update: %s', 'es-football-bypass-for-cloudflare' ), esc_html( $last_upd ) ) . '</p>';
+		if ( $is_blocked && ! empty( $isps ) ) {
+			echo '<p style="color:#666;font-size:13px;margin:8px 0 0 0;">' . esc_html__( 'Affected ISPs:', 'es-football-bypass-for-cloudflare' ) . ' <strong>' . esc_html( implode( ', ', $isps ) ) . '</strong></p>';
+		}
+		echo '</div>';
+
+		echo '<div class="postbox" style="padding:14px;max-width:720px;">';
+		echo '<h3 style="margin:0 0 8px 0;">' . esc_html__( 'Where this data comes from', 'es-football-bypass-for-cloudflare' ) . '</h3>';
+		echo '<p style="margin:0 0 6px 0;">' . sprintf(
+			/* translators: %s is a link to hayahora.futbol. */
+			wp_kses( __( 'The answer above comes from the public feed published by %s, which monitors IP blocks ordered during La Liga football matches in Spain from several Spanish ISPs (DIGI, Movistar, Orange, Masmovil…).', 'es-football-bypass-for-cloudflare' ), array() ),
+			'<a href="https://hayahora.futbol/" target="_blank" rel="noopener">hayahora.futbol</a>'
+		) . '</p>';
+		echo '<p style="margin:0;color:#666;font-size:13px;">' . esc_html__( 'The feed URL is https://hayahora.futbol/estado/data.json and is consulted automatically each time this page is opened.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+		echo '</div>';
+
+		$plugin_data = get_plugin_data( __FILE__ );
+		echo '<p style="text-align:right;color:#999;font-size:12px;margin-top:20px;max-width:720px;">' . esc_html( 'Version ' . $plugin_data['Version'] ) . '</p>';
+		echo '</div>';
+	}
 
 	/** Render the main operation page with DNS table and action buttons. */
 	public function render_main_page() {
@@ -2585,7 +2705,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			array(
 				'timeout'     => 25,
 				'redirection' => 5,
-				'user-agent'  => 'ESFB/1.9.5; ' . home_url( '/' ),
+				'user-agent'  => 'ESFB/1.9.6; ' . home_url( '/' ),
 			)
 		);
 		$remote_ok   = false;
@@ -3103,14 +3223,15 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			$this->log( '[CFB] Email notificación omitida por throttle.' );
 			return;
 		}
-		$to = get_option( 'admin_email' );
+		$custom = isset( $s['notification_email'] ) ? trim( (string) $s['notification_email'] ) : '';
+		$to     = ( '' !== $custom && is_email( $custom ) ) ? $custom : get_option( 'admin_email' );
 		if ( ! is_email( $to ) ) {
 			return;
 		}
 		$site    = get_bloginfo( 'name' );
 		$home    = home_url( '/' );
 		$mgr_url = admin_url( 'admin.php?page=cfbcolorvivo-main' );
-		$version = '1.9.5';
+		$version = '1.9.6';
 
 		if ( $now_active ) {
 			/* translators: %s is the site name. */

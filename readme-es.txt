@@ -4,7 +4,7 @@ Tags: cloudflare, dns, futbol, bypass, bloqueo-ip
 Requires at least: 5.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.9.5
+Stable tag: 1.9.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -28,6 +28,15 @@ Cuando se detecta fútbol:
 - Desactiva automáticamente el proxy de Cloudflare en los registros DNS seleccionados
 - Tu web pasa a modo DNS Only, evitando las IPs de Cloudflare potencialmente bloqueadas
 - Tras el periodo de enfriamiento configurado, vuelve a activar el proxy de Cloudflare automáticamente
+
+= Dos modos de interfaz: Simple y Avanzado =
+
+Desde la versión 1.9.6 el plugin incluye dos modos de interfaz que puedes cambiar desde Configuración → Modo de interfaz:
+
+- **Simple** (por defecto en instalaciones nuevas, recomendado para agencias y sitios de clientes): muestra solo lo imprescindible. Estado de bloqueo, botones manuales de proxy ON/OFF, avisos por email básicos ante cambios de estado, credenciales de Cloudflare, comportamiento del bypass y opciones de desinstalación. La pestaña de logs, el panel de diagnóstico del feed, el umbral de obsolescencia, la retención de logs y el token de cron externo quedan ocultos para reducir ruido a usuarios no técnicos. Los logs se siguen escribiendo en disco — siempre puedes cambiar a Avanzado si necesitas diagnosticar algo.
+- **Avanzado** (por defecto al actualizar desde versiones anteriores): muestra todo, incluyendo el panel completo de diagnóstico del feed, la pestaña de logs, la consola técnica y las opciones avanzadas. Ideal para desarrolladores, usuarios avanzados o cuando necesitas diagnosticar comportamiento o configurar un cron desde el servidor.
+
+Existe también una subpágina independiente "¿Hay fútbol ahora?" que simplemente responde SÍ o NO según el feed público, con una nota breve sobre la fuente de los datos. Perfecto para compartir el enlace con un cliente final que solo quiere saber si hay bloqueos activos ahora mismo.
 
 = Funcionalidades clave =
 
@@ -186,6 +195,15 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 
 == Changelog ==
 
+= 1.9.6 =
+* NUEVO: Subpágina "¿Hay fútbol ahora?" bajo Operación — un panel de estado con un SÍ/NO grande basado en el feed de hayahora.futbol, con una nota breve sobre la fuente de los datos. Pensado para que usuarios no técnicos puedan comprobar de un vistazo si hay bloqueos activos de La Liga
+* NUEVO: Campo opcional "Destinatario de los avisos" — déjalo vacío para usar el email del administrador del sitio (por defecto), o pon otra dirección para dirigir las notificaciones a un buzón de soporte o al cliente final
+* UX: Página de Configuración reorganizada en secciones más claras: Modo de interfaz, Credenciales Cloudflare, Comportamiento del bypass (con "Forzar Proxy OFF durante fútbol" ahora arriba del todo), Avisos por email, Al desinstalar y Opciones avanzadas (solo visibles en modo Avanzado)
+* UX: Las opciones técnicas (Umbral de obsolescencia, Registro de acciones, Retención de logs, Token de cron externo) se agrupan ahora en "Opciones avanzadas" y quedan ocultas en modo Simple para reducir ruido en sitios de clientes
+* UX: La etiqueta del modo "Avanzado" menciona ahora explícitamente la configuración del cron para que sea fácil encontrar esa sección
+* I18N: El plugin ahora llama a load_plugin_textdomain() para que los ficheros .mo incluidos en /languages/ se carguen cuando se instala el plugin desde el zip de release (antes solo se aplicaban las traducciones publicadas en translate.wordpress.org)
+* I18N: Los cinco idiomas incluidos (es_ES, ca, eu, fr_FR, gl_ES) están ahora al 100% de cobertura — las traducciones asistidas por máquina para ca/eu/fr_FR/gl_ES se irán puliendo por la comunidad de GlotPress con el tiempo
+
 = 1.9.5 =
 * NUEVO: Panel de diagnóstico del feed en la página de Operación (edad y tamaño del data.json local, estado de la última descarga remota, número de IPs con bloqueo activo)
 * NUEVO: Botón "Borrar caché local (data.json)" para forzar una nueva descarga limpia en la siguiente comprobación
@@ -303,6 +321,9 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 * Sistema de cron integrado
 
 == Upgrade Notice ==
+
+= 1.9.6 =
+Release de UX: nueva página "¿Hay fútbol ahora?" con SÍ/NO rápido, destinatario de avisos por email configurable, y página de Configuración reorganizada en secciones (las Opciones avanzadas se ocultan en modo Simple).
 
 = 1.9.5 =
 Release mayor de calidad: modos de interfaz simple/avanzado (el simple oculta logs y diagnóstico técnico para sitios de clientes), notificaciones por email opcionales en cambios automáticos del bypass, umbral de obsolescencia y ISPs mínimos para reducir falsos positivos, panel de diagnóstico del feed, botón para borrar caché local, UI mejorada del cron externo y toggle "Eliminar datos al desinstalar". Los upgrades mantienen la experiencia Avanzada; las nuevas instalaciones arrancan en Simple.
