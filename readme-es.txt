@@ -195,6 +195,10 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 
 == Changelog ==
 
+= 1.9.7 =
+* SEGURIDAD: El nombre del fichero de log incluye ahora un secreto aleatorio por sitio, de modo que la URL del log no es adivinable en servidores donde se ignora el .htaccess del directorio (nginx, LiteSpeed). Los logs existentes se migran automáticamente al nuevo nombre en la primera escritura. Las IPs registradas siguen anonimizadas (RGPD)
+* RENDIMIENTO: La página de Operación ya no hace llamadas HTTP bloqueantes redundantes en cada carga — la descarga del feed de hayahora.futbol y la sincronización DNS con Cloudflare se limitan (una vez por minuto por defecto; configurable con los filtros cfbcolorvivo_feed_fetch_throttle_seconds y cfbcolorvivo_oppage_dns_throttle_seconds). Las acciones "Probar conexión", "Actualizar IPs" y "Borrar caché local" siguen forzando un refresco inmediato
+
 = 1.9.6 =
 * NUEVO: Subpágina "¿Hay fútbol ahora?" bajo Operación — un panel de estado con un SÍ/NO grande basado en el feed de hayahora.futbol, con una nota breve sobre la fuente de los datos. Pensado para que usuarios no técnicos puedan comprobar de un vistazo si hay bloqueos activos de La Liga
 * NUEVO: Campo opcional "Destinatario de los avisos" — déjalo vacío para usar el email del administrador del sitio (por defecto), o pon otra dirección para dirigir las notificaciones a un buzón de soporte o al cliente final
@@ -321,6 +325,9 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 * Sistema de cron integrado
 
 == Upgrade Notice ==
+
+= 1.9.7 =
+Release de hardening y rendimiento: nombre de fichero de log impredecible (protege los logs en nginx/LiteSpeed donde se ignora el .htaccess) y llamadas de red limitadas para que la página de Operación cargue sin peticiones bloqueantes redundantes. Recomendada para todos.
 
 = 1.9.6 =
 Release de UX: nueva página "¿Hay fútbol ahora?" con SÍ/NO rápido, destinatario de avisos por email configurable, y página de Configuración reorganizada en secciones (las Opciones avanzadas se ocultan en modo Simple).
