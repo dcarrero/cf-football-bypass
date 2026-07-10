@@ -4,7 +4,7 @@ Tags: cloudflare, dns, football, bypass, ip-blocking
 Requires at least: 5.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.9.6
+Stable tag: 1.9.7
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -195,6 +195,10 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 
 == Changelog ==
 
+= 1.9.7 =
+* SECURITY: Action log file name now includes a per-site random secret, so the log URL is not guessable on servers where the directory .htaccess is ignored (nginx, LiteSpeed). Existing logs are migrated automatically to the new name on first write. Logged IPs remain anonymized (GDPR)
+* PERFORMANCE: The Operation page no longer makes redundant blocking HTTP calls on every load — the hayahora.futbol feed download and the Cloudflare DNS sync are throttled (once per minute by default; overridable via the cfbcolorvivo_feed_fetch_throttle_seconds and cfbcolorvivo_oppage_dns_throttle_seconds filters). The "Test connection", "Update IPs" and "Clear local cache" actions still force a fresh refresh on demand
+
 = 1.9.6 =
 * NEW: "Is there football now?" subpage under Operation — a plain YES/NO status panel based on the hayahora.futbol feed, with a short note about the data source. Designed for non-technical users to check at a glance whether there are active La Liga IP blocks
 * NEW: Optional "Notifications recipient" email field — leave empty to use the site administrator (default), or set a different address to route notifications to a support mailbox or to the final client
@@ -321,6 +325,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * Integrated cron system
 
 == Upgrade Notice ==
+
+= 1.9.7 =
+Hardening and performance release: unguessable log file name (protects logs on nginx/LiteSpeed where .htaccess is ignored) and throttled network calls so the Operation page loads without redundant blocking requests. Recommended for everyone.
 
 = 1.9.6 =
 UX release: new "Is there football now?" YES/NO quick-check page, configurable notification recipient email, and cleaner Settings page split into sections (Advanced options hidden in Simple mode).

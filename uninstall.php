@@ -27,6 +27,7 @@ delete_transient( 'cfbcolorvivo_prune_throttle' );
 delete_transient( 'cfbcolorvivo_server_outgoing_ips' );
 delete_transient( 'cfbcolorvivo_feed_last_fetch' );
 delete_transient( 'cfbcolorvivo_last_email_sent' );
+delete_transient( 'cfbcolorvivo_oppage_dns_throttle' );
 
 // Cron hook siempre se limpia para no dejar schedules colgados.
 wp_clear_scheduled_hook( 'cfbcolorvivo_check_football_status' );
