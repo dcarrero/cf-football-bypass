@@ -3,7 +3,7 @@
  * Plugin Name: ES Football Bypass for Cloudflare
  * Plugin URI: https://github.com/dcarrero/cf-football-bypass
  * Description: Operates with Cloudflare to toggle between Proxy (ON/CDN) and DNS Only (OFF) based on IP blocks, with persistent DNS cache and AJAX actions. Separate UI: Operation and Settings.
- * Version: 1.9.6
+ * Version: 1.9.7
  * Author: David Carrero Fernandez-Baillo
  * Author URI: https://carrero.es
  * License: GPL v2 or later
@@ -87,7 +87,9 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		$upload_base              = wp_upload_dir()['basedir'];
 		$this->plugin_upload_dir  = $upload_base . '/es-football-bypass-for-cloudflare';
 		$this->log_dir_path       = $this->plugin_upload_dir . '/logs';
-		$this->log_file_path      = $this->log_dir_path . '/cfbcolorvivo-actions.log';
+		// El nombre real del fichero se resuelve de forma diferida en get_log_file_path()
+		// usando el secreto por sitio (log_secret), que no está disponible tan pronto.
+		$this->log_file_path      = '';
 
 		// Cargar traducciones: prioriza wp-content/languages/plugins/ (GlotPress/WP.org)
 		// y cae a /languages/ del plugin como fallback cuando se instala desde el zip.
@@ -405,6 +407,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			'last_update'              => '',
 			'logging_enabled'          => 1,
 			'log_retention_days'       => 30,
+			'log_secret'               => '',  // Sufijo aleatorio del fichero de log; hace la URL impredecible (defensa en profundidad en nginx, donde .htaccess no aplica).
 			'cron_secret'              => $secret,
 			'bypass_active'            => 0,
 			'bypass_blocked_ips'       => array(),
@@ -437,6 +440,12 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		$index = $dir . '/index.php';
 		if ( $wp_fs && ! $wp_fs->exists( $index ) ) {
 			$wp_fs->put_contents( $index, '<?php // Silence is golden', FS_CHMOD_FILE );
+		}
+		// Migrar el log heredado con nombre predecible al nombre con secreto (una sola vez).
+		$legacy = $this->get_legacy_log_file_path();
+		$target = $this->get_log_file_path();
+		if ( $wp_fs && $target !== $legacy && $wp_fs->exists( $legacy ) && ! $wp_fs->exists( $target ) ) {
+			$wp_fs->move( $legacy, $target, true );
 		}
 		return is_dir( $dir ) && wp_is_writable( $dir );
 	}
@@ -504,9 +513,28 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		}
 		return 'desconocido';
 	}
-	/** Return the full path to the action log file. */
+	/**
+	 * Return the full path to the action log file.
+	 *
+	 * The filename embeds a per-site random secret so the URL is not guessable
+	 * on servers where the directory .htaccess is ignored (nginx, LiteSpeed).
+	 * Resolved lazily and cached because the secret lives in settings.
+	 */
 	private function get_log_file_path() {
+		if ( ! empty( $this->log_file_path ) ) {
+			return $this->log_file_path;
+		}
+		$s      = $this->get_settings();
+		$secret = ( ! empty( $s['log_secret'] ) && is_string( $s['log_secret'] ) ) ? $s['log_secret'] : '';
+		$name   = $secret ? 'cfbcolorvivo-actions-' . $secret . '.log' : 'cfbcolorvivo-actions.log';
+
+		$this->log_file_path = $this->log_dir_path . '/' . $name;
 		return $this->log_file_path;
+	}
+
+	/** Return the legacy (pre-1.9.7) predictable log file path, for migration. */
+	private function get_legacy_log_file_path() {
+		return $this->log_dir_path . '/cfbcolorvivo-actions.log';
 	}
 	/**
 	 * Append a structured event to the action log file.
@@ -785,6 +813,10 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			$opt['cron_secret'] = $this->generate_cron_secret();
 			$changed            = true;
 		}
+		if ( empty( $opt['log_secret'] ) || ! is_string( $opt['log_secret'] ) ) {
+			$opt['log_secret'] = $this->generate_cron_secret();
+			$changed           = true;
+		}
 		$cooldown = isset( $opt['bypass_check_cooldown'] ) ? intval( $opt['bypass_check_cooldown'] ) : 60;
 		if ( $cooldown < 5 ) {
 			$cooldown = 5;
@@ -915,7 +947,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		}
 
 		// Registrar script handle para asociar inline scripts.
-		wp_register_script( 'cfbcolorvivo-admin', false, array(), '1.9.6', true );
+		wp_register_script( 'cfbcolorvivo-admin', false, array(), '1.9.7', true );
 		wp_enqueue_script( 'cfbcolorvivo-admin' );
 
 		// Pasar datos al JavaScript.
@@ -1306,6 +1338,8 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		}
 		$san['bypass_check_cooldown'] = isset( $input['bypass_check_cooldown'] ) ? intval( $input['bypass_check_cooldown'] ) : ( $existing['bypass_check_cooldown'] ?? 60 );
 		$san['cron_secret']           = isset( $input['cron_secret'] ) ? sanitize_text_field( $input['cron_secret'] ) : ( $existing['cron_secret'] ?? '' );
+		// log_secret no es un campo del formulario: preservar el existente para no cambiar el nombre del fichero de log en cada guardado (normalize lo regenera si está vacío).
+		$san['log_secret']            = ( ! empty( $existing['log_secret'] ) && is_string( $existing['log_secret'] ) ) ? $existing['log_secret'] : '';
 		$san['bypass_active']         = isset( $input['bypass_active'] ) ? (int) ! empty( $input['bypass_active'] ) : ( $existing['bypass_active'] ?? 0 );
 		$raw_blocked_ips              = array_key_exists( 'bypass_blocked_ips', $input ) ? (array) $input['bypass_blocked_ips'] : ( $existing['bypass_blocked_ips'] ?? array() );
 		$san['bypass_blocked_ips']    = array_map( 'sanitize_text_field', $raw_blocked_ips );
@@ -1775,8 +1809,16 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			return;
 		}
 
-		$sync_trace = array();
-		if ( ! empty( $s['cloudflare_zone_id'] ) && ! empty( $s['cloudflare_api_key'] ) ) {
+		$sync_trace   = array();
+		$dns_throttle = (int) apply_filters( 'cfbcolorvivo_oppage_dns_throttle_seconds', MINUTE_IN_SECONDS );
+		$can_sync     = ! empty( $s['cloudflare_zone_id'] ) && ! empty( $s['cloudflare_api_key'] );
+		// Evitar una llamada bloqueante a la API de Cloudflare en cada carga de la página:
+		// sincronizar como mucho una vez por ventana. El botón "Probar conexión" sigue forzando refresco.
+		if ( $can_sync && $dns_throttle > 0 && get_transient( 'cfbcolorvivo_oppage_dns_throttle' ) ) {
+			$can_sync = false;
+		}
+		if ( $can_sync ) {
+			set_transient( 'cfbcolorvivo_oppage_dns_throttle', 1, $dns_throttle );
 			$records = $this->fetch_dns_records( array( 'A', 'AAAA', 'CNAME' ), $sync_trace );
 			if ( ! empty( $records ) ) {
 				$this->persist_dns_cache( $records );
@@ -1865,7 +1907,9 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			echo '</div>';
 		}
 
-		$calc          = $this->compute_statuses_from_json( true );
+		// No forzar re-resolución DNS en cada render; la caché de 60 s es suficiente y el
+		// enlace "Actualizar IPs" permite refrescar bajo demanda.
+		$calc          = $this->compute_statuses_from_json( false );
 		$general_si_no = ( 'SÍ' === $calc['general'] ) ? 'SI' : 'NO';
 		$domain_si_no  = ( 'SÍ' === $calc['domain'] ) ? 'SI' : 'NO';
 		$ips_str       = ! empty( $calc['domain_ips'] ) ? esc_html( implode( ', ', $calc['domain_ips'] ) ) : '—';
@@ -2699,49 +2743,62 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			}
 		}
 
-		$url         = apply_filters( 'cfbcolorvivo_remote_data_json_url', 'https://hayahora.futbol/estado/data.json' );
-		$resp        = wp_remote_get(
-			$url,
-			array(
-				'timeout'     => 25,
-				'redirection' => 5,
-				'user-agent'  => 'ESFB/1.9.6; ' . home_url( '/' ),
-			)
-		);
 		$remote_ok   = false;
 		$remote_body = null;
 		$last_remote = null;
 		$remote_code = 0;
 		$remote_err  = '';
-		if ( is_wp_error( $resp ) ) {
-			$remote_err = $resp->get_error_message();
-		} else {
-			$remote_code = (int) wp_remote_retrieve_response_code( $resp );
-			if ( 200 === $remote_code ) {
-				$remote_body = wp_remote_retrieve_body( $resp );
-				$tmp         = json_decode( $remote_body, true );
-				if ( is_array( $tmp ) ) {
-					$remote_ok = true;
-					if ( ! empty( $tmp['lastUpdate'] ) && is_string( $tmp['lastUpdate'] ) ) {
-						$last_remote = $tmp['lastUpdate'];
+
+		// Throttle: si el feed remoto se descargó con éxito hace menos de N segundos y ya
+		// tenemos copia local, evitamos repetir la petición HTTP bloqueante. Una sola carga
+		// de la pantalla de Operación llama aquí varias veces (estado + diagnóstico); sin esto
+		// cada render encadenaba peticiones de 25 s a hayahora.futbol.
+		$fetch_throttle = (int) apply_filters( 'cfbcolorvivo_feed_fetch_throttle_seconds', MINUTE_IN_SECONDS );
+		$last_fetch     = get_transient( 'cfbcolorvivo_feed_last_fetch' );
+		$skip_remote    = ( $fetch_throttle > 0 && is_string( $local_body ) && '' !== $local_body
+			&& is_array( $last_fetch ) && ! empty( $last_fetch['ok'] ) && ! empty( $last_fetch['time'] )
+			&& ( time() - (int) $last_fetch['time'] ) < $fetch_throttle );
+
+		if ( ! $skip_remote ) {
+			$url  = apply_filters( 'cfbcolorvivo_remote_data_json_url', 'https://hayahora.futbol/estado/data.json' );
+			$resp = wp_remote_get(
+				$url,
+				array(
+					'timeout'     => 25,
+					'redirection' => 5,
+					'user-agent'  => 'ESFB/1.9.7; ' . home_url( '/' ),
+				)
+			);
+			if ( is_wp_error( $resp ) ) {
+				$remote_err = $resp->get_error_message();
+			} else {
+				$remote_code = (int) wp_remote_retrieve_response_code( $resp );
+				if ( 200 === $remote_code ) {
+					$remote_body = wp_remote_retrieve_body( $resp );
+					$tmp         = json_decode( $remote_body, true );
+					if ( is_array( $tmp ) ) {
+						$remote_ok = true;
+						if ( ! empty( $tmp['lastUpdate'] ) && is_string( $tmp['lastUpdate'] ) ) {
+							$last_remote = $tmp['lastUpdate'];
+						}
+					} else {
+						$remote_err = 'respuesta no es JSON válido';
 					}
 				} else {
-					$remote_err = 'respuesta no es JSON válido';
+					$remote_err = 'HTTP ' . $remote_code;
 				}
-			} else {
-				$remote_err = 'HTTP ' . $remote_code;
 			}
+			set_transient(
+				'cfbcolorvivo_feed_last_fetch',
+				array(
+					'time'  => time(),
+					'ok'    => $remote_ok,
+					'code'  => $remote_code,
+					'error' => $remote_err,
+				),
+				DAY_IN_SECONDS
+			);
 		}
-		set_transient(
-			'cfbcolorvivo_feed_last_fetch',
-			array(
-				'time'    => time(),
-				'ok'      => $remote_ok,
-				'code'    => $remote_code,
-				'error'   => $remote_err,
-			),
-			DAY_IN_SECONDS
-		);
 
 		$should_write = false;
 		if ( $remote_ok ) {
@@ -3231,7 +3288,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		$site    = get_bloginfo( 'name' );
 		$home    = home_url( '/' );
 		$mgr_url = admin_url( 'admin.php?page=cfbcolorvivo-main' );
-		$version = '1.9.6';
+		$version = '1.9.7';
 
 		if ( $now_active ) {
 			/* translators: %s is the site name. */
@@ -3539,7 +3596,8 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			);
 		}
 		check_ajax_referer( 'cfbcolorvivo_nonce' );
-		$calc = $this->compute_statuses_from_json();
+		// Acción explícita del usuario (botón "Actualizar IPs"): forzar resolución DNS fresca.
+		$calc = $this->compute_statuses_from_json( true );
 		wp_send_json_success(
 			array(
 				'general'     => $calc['general'],
@@ -3788,6 +3846,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 
 		delete_transient( 'cfbcolorvivo_domain_ips_cache' );
 		delete_transient( 'cfbcolorvivo_feed_last_fetch' );
+		delete_transient( 'cfbcolorvivo_oppage_dns_throttle' );
 		$log[] = 'Transients de caché borrados.';
 
 		$this->log_event(
