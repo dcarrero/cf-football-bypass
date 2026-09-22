@@ -183,6 +183,13 @@ Desde la 2.0.0 el plugin registra cinco abilities mediante la Abilities API de W
 
 Todas las abilities exigen la capacidad `manage_options`, declaran JSON Schema de entrada y salida, y llevan anotaciones readonly/destructive/idempotent para que los clientes sepan qué es seguro invocar.
 
+= Métodos HTTP en REST =
+WordPress deduce el método HTTP de las anotaciones de cada ability, así que los clientes REST deben usar el verbo correcto (los clientes MCP invocan las abilities por nombre y no se ven afectados):
+
+* `get-status` y `list-dns-records` son `readonly`, así que se sirven por **GET**, con la entrada como parámetros de consulta (`?input[type]=A`).
+* `set-managed-records` y `run-check` se sirven por **POST**, con la entrada en el cuerpo JSON (`{"input": {...}}`).
+* `set-proxy` está anotada como `destructive`, así que se sirve por **DELETE**. Pasa su entrada como parámetros de consulta (`?input[mode]=off`): en las peticiones DELETE no se lee el cuerpo JSON.
+
 = es-football-bypass/get-status =
 Solo lectura. Devuelve si hay bloqueos de IPs activos ahora mismo, si este sitio resuelve a una IP bloqueada, si el bypass está actuando, las IPs resueltas, cuántos registros se gestionan y las marcas de tiempo de la última comprobación y del feed.
 
@@ -224,6 +231,8 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 * NUEVO: `es-football-bypass/run-check` — ejecuta la misma comprobación que el cron y aplica la política de bypass
 * NUEVO: `es-football-bypass/set-proxy` — fuerza los registros gestionados a Proxied (CDN) o DNS Only. Va anotada como destructiva para que los clientes pidan confirmación, y devuelve un error claro si no hay registros gestionados o falta la configuración de Cloudflare
 * Todas las abilities exigen la capacidad `manage_options`, declaran JSON Schema de entrada y salida, y llevan anotaciones readonly/destructive/idempotent para que los agentes sepan qué es seguro invocar
+* NUEVO: Filtros `cfbcolorvivo_site_domain` y `cfbcolorvivo_is_local_domain`, para que una copia de staging, una instalación tras proxy inverso o una previsualización en WordPress Playground puedan desbloquear la página de Operación y comprobarse contra el dominio de producción
+* CORRECCIÓN: El aviso de "Cambios sin guardar" se veía nada más cargar la página, sin haber tocado nada: la hoja de estilos anulaba el atributo `hidden`
 * COMPATIBILIDAD: La versión mínima de WordPress sube a 6.9, que es donde llegó la Abilities API. Los sitios con versiones anteriores se quedan en la 1.9.8, que ya incluye la corrección de la selección de registros DNS
 * INTERNO: La lógica de "Forzar Proxy ON/OFF" pasa a ser común entre las acciones AJAX del escritorio y las abilities, así ambas siguen exactamente el mismo camino contra Cloudflare
 

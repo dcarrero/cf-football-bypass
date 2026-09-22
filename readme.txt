@@ -183,6 +183,13 @@ Since 2.0.0 the plugin registers five abilities through the WordPress Abilities 
 
 Every ability requires the `manage_options` capability, declares JSON Schemas for its input and output, and carries readonly/destructive/idempotent annotations so clients know what is safe to call.
 
+= HTTP methods over REST =
+WordPress derives the HTTP method from each ability's annotations, so REST clients must use the right verb (MCP clients call abilities by name and are unaffected):
+
+* `get-status` and `list-dns-records` are `readonly`, so they are served over **GET**, with input as query parameters (`?input[type]=A`).
+* `set-managed-records` and `run-check` are served over **POST**, with input in the JSON body (`{"input": {...}}`).
+* `set-proxy` is annotated `destructive`, so it is served over **DELETE**. Pass its input as query parameters (`?input[mode]=off`): a JSON body is not read on DELETE requests.
+
 = es-football-bypass/get-status =
 Read-only. Returns whether La Liga IP blocks are active right now, whether this site resolves to a blocked IP, whether the bypass is engaged, the resolved IPs, how many records are managed, and the last check and feed timestamps.
 
@@ -224,6 +231,8 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * NEW: `es-football-bypass/run-check` — runs the same check as the cron job and applies the bypass policy
 * NEW: `es-football-bypass/set-proxy` — forces the managed records to Proxied (CDN) or DNS Only. Annotated as destructive so clients ask for confirmation, and it returns a clear error when no records are managed or Cloudflare is not configured
 * All abilities require the `manage_options` capability, declare JSON Schemas for input and output, and carry readonly/destructive/idempotent annotations so agents know what is safe to call
+* NEW: Filters `cfbcolorvivo_site_domain` and `cfbcolorvivo_is_local_domain`, so a staging copy, a reverse-proxied install or a WordPress Playground preview can unlock the Operation page and be checked against the production domain
+* FIX: The "Unsaved changes" warning was visible on page load before touching anything — the stylesheet was overriding the `hidden` attribute
 * COMPAT: Minimum WordPress version raised to 6.9, which is where the Abilities API landed. Sites on older versions stay on 1.9.8, which contains the DNS record selection fix
 * INTERNAL: The "Force Proxy ON/OFF" logic is now shared between the admin AJAX actions and the abilities, so both follow exactly the same path against Cloudflare
 

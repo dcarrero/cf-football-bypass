@@ -274,14 +274,20 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		if ( filter_var( $domain, FILTER_VALIDATE_IP ) ) {
 			return true;
 		}
-		$local = array( 'localhost', 'localhost.localdomain' );
-		if ( in_array( strtolower( $domain ), $local, true ) ) {
-			return true;
-		}
-		if ( preg_match( '/\.(local|test|ddev\.site|lndo\.site|wp\.lan)$/i', $domain ) ) {
-			return true;
-		}
-		return false;
+		$local    = array( 'localhost', 'localhost.localdomain' );
+		$is_local = in_array( strtolower( $domain ), $local, true )
+			|| (bool) preg_match( '/\.(local|test|ddev\.site|lndo\.site|wp\.lan)$/i', $domain );
+
+		/**
+		 * Filters whether the current domain is a local environment.
+		 *
+		 * Returning false unlocks the Operation page on a local or preview install,
+		 * which is what a staging copy or a WordPress Playground demo needs.
+		 *
+		 * @param bool   $is_local Whether the domain looks local.
+		 * @param string $domain   Domain being checked.
+		 */
+		return (bool) apply_filters( 'cfbcolorvivo_is_local_domain', $is_local, $domain );
 	}
 	/** Detect the outgoing IP addresses of this server (cached 1 hour). */
 	private function get_server_outgoing_ips() {
@@ -1007,6 +1013,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		.cfbcolorvivo-count{margin:8px 0 0;color:#50575e}
 		.cfbcolorvivo-count #cfbcolorvivo-sel-count{font-weight:700;color:#1d2327}
 		.cfbcolorvivo-dirty{display:inline-block;margin-left:8px;padding:2px 8px;background:#fcf9e8;border-left:3px solid #dba617;color:#674d00}
+		.cfbcolorvivo-dirty[hidden]{display:none}
 		.cfbcolorvivo-actions{margin:12px 0 0}
 		.cfbcolorvivo-actionrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 		.cfbcolorvivo-hint{flex:1 1 100%;margin:2px 0 0;font-size:12px;color:#646970}
@@ -2887,11 +2894,20 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 	private function get_site_domain() {
 		$home = home_url( '/' );
 		$host = wp_parse_url( $home, PHP_URL_HOST );
-		if ( $host ) {
-			return $host;
+		if ( ! $host ) {
+			// Fallback to HTTP_HOST only if home_url parsing fails.
+			$host = isset( $_SERVER['HTTP_HOST'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) ) : '';
 		}
-		// Fallback to HTTP_HOST only if home_url parsing fails.
-		return isset( $_SERVER['HTTP_HOST'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) ) : '';
+
+		/**
+		 * Filters the domain the plugin considers to be this site.
+		 *
+		 * Useful behind a reverse proxy, or on a staging copy that must be checked
+		 * against the production domain.
+		 *
+		 * @param string $host Domain resolved from home_url().
+		 */
+		return (string) apply_filters( 'cfbcolorvivo_site_domain', $host );
 	}
 	/**
 	 * Resolve the A and AAAA records for a domain, with transient caching.
