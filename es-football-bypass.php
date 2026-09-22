@@ -3,7 +3,7 @@
  * Plugin Name: ES Football Bypass for Cloudflare
  * Plugin URI: https://github.com/dcarrero/cf-football-bypass
  * Description: Operates with Cloudflare to toggle between Proxy (ON/CDN) and DNS Only (OFF) based on IP blocks, with persistent DNS cache and AJAX actions. Separate UI: Operation and Settings.
- * Version: 1.9.7
+ * Version: 1.9.8
  * Author: David Carrero Fernandez-Baillo
  * Author URI: https://carrero.es
  * License: GPL v2 or later
@@ -107,6 +107,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		register_activation_hook( __FILE__, array( $this, 'activate' ) );
 		register_deactivation_hook( __FILE__, array( $this, 'deactivate' ) );
 
+		add_action( 'wp_ajax_cfbcolorvivo_save_selection', array( $this, 'ajax_save_selection' ) );
 		add_action( 'wp_ajax_cfbcolorvivo_test_connection', array( $this, 'ajax_test_connection' ) );
 		add_action( 'wp_ajax_cfbcolorvivo_manual_check', array( $this, 'ajax_manual_check' ) );
 		add_action( 'wp_ajax_cfbcolorvivo_get_status', array( $this, 'ajax_get_status' ) );
@@ -947,7 +948,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		}
 
 		// Registrar script handle para asociar inline scripts.
-		wp_register_script( 'cfbcolorvivo-admin', false, array(), '1.9.7', true );
+		wp_register_script( 'cfbcolorvivo-admin', false, array(), '1.9.8', true );
 		wp_enqueue_script( 'cfbcolorvivo-admin' );
 
 		// Pasar datos al JavaScript.
@@ -957,8 +958,14 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			array(
 				'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
 				'optionName' => $this->option_name,
+				'nonce'      => wp_create_nonce( 'cfbcolorvivo_nonce' ),
 			)
 		);
+
+		// Estilos de la interfaz de administración.
+		wp_register_style( 'cfbcolorvivo-admin', false, array(), '1.9.8' );
+		wp_enqueue_style( 'cfbcolorvivo-admin' );
+		wp_add_inline_style( 'cfbcolorvivo-admin', $this->get_admin_css() );
 
 		// Página de operación principal.
 		if ( strpos( $hook, 'cfbcolorvivo-main' ) !== false ) {
@@ -972,23 +979,116 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		}
 	}
 
+	/** Return the inline CSS for the plugin admin pages. */
+	private function get_admin_css() {
+		return '
+		.cfbcolorvivo-tabletools{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;margin:0 0 8px}
+		.cfbcolorvivo-toolgroup{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+		.cfbcolorvivo-toollabel{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#646970}
+		.cfbcolorvivo-filter.is-active{background:#2271b1;border-color:#2271b1;color:#fff}
+		.cfbcolorvivo-filter.is-active:hover{background:#135e96;border-color:#135e96;color:#fff}
+		.cfbcolorvivo-filter.is-active .cfbcolorvivo-badge{background:rgba(255,255,255,.28);color:#fff}
+		.cfbcolorvivo-badge{display:inline-block;min-width:14px;padding:0 5px;border-radius:9px;background:#f0f0f1;color:#50575e;font-size:11px;line-height:17px;text-align:center}
+		.cfbcolorvivo-dns-table tr.is-selected td{background:#f0f6fc}
+		.cfbcolorvivo-dns-table .check-column{width:2.2em;vertical-align:middle;text-align:center}
+		.cfbcolorvivo-dns-table td label{cursor:pointer}
+		.cfbcolorvivo-content{font-family:Menlo,Consolas,monospace;font-size:12px;word-break:break-all}
+		.cfbcolorvivo-pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}
+		.cfbcolorvivo-pill.is-on{background:#e6f3e6;color:#1d6b2b}
+		.cfbcolorvivo-pill.is-off{background:#fcf0e4;color:#8a4b00}
+		.cfbcolorvivo-pill.is-na{background:#f0f0f1;color:#787c82}
+		.cfbcolorvivo-tag{display:inline-block;padding:0 6px;border-radius:9px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;vertical-align:middle}
+		.cfbcolorvivo-tag.is-site{background:#2271b1;color:#fff}
+		.cfbcolorvivo-tag.is-muted{background:#f0f0f1;color:#787c82}
+		.cfbcolorvivo-count{margin:8px 0 0;color:#50575e}
+		.cfbcolorvivo-count #cfbcolorvivo-sel-count{font-weight:700;color:#1d2327}
+		.cfbcolorvivo-dirty{display:inline-block;margin-left:8px;padding:2px 8px;background:#fcf9e8;border-left:3px solid #dba617;color:#674d00}
+		.cfbcolorvivo-actions{margin:12px 0 0}
+		.cfbcolorvivo-actionrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+		.cfbcolorvivo-hint{flex:1 1 100%;margin:2px 0 0;font-size:12px;color:#646970}
+		.button.cfbcolorvivo-danger{color:#b32d2e;border-color:#b32d2e}
+		.button.cfbcolorvivo-danger:hover,.button.cfbcolorvivo-danger:focus{background:#b32d2e;border-color:#b32d2e;color:#fff}
+		.cfbcolorvivo-pulse{box-shadow:0 0 0 3px rgba(219,166,23,.45)}
+		@media screen and (max-width:960px){
+			.cfbcolorvivo-flex{flex-direction:column}
+			.cfbcolorvivo-aside{width:100% !important}
+		}
+		';
+	}
+
 	/** Return the inline JavaScript for the main operation page. */
 	private function get_main_page_js() {
 		return "(function(){
             var ajaxURL = cfbcolorvivoData.ajaxUrl;
             var optName = cfbcolorvivoData.optionName;
+            var nonce   = cfbcolorvivoData.nonce || '';
             var consolePre = document.getElementById('cfbcolorvivo-console-pre');
+            var consoleSimple = document.getElementById('cfbcolorvivo-console-simple');
             var warn = document.getElementById('cfbcolorvivo-warn');
-            function println(msg){ if (!consolePre) return; var ts=new Date().toLocaleTimeString(); consolePre.textContent += '['+ts+'] '+msg+'\\n'; }
-            function clearConsole(){ if (consolePre) consolePre.textContent=''; }
-            function showWait(show){ if (warn) warn.style.display = show ? '' : 'none'; }
-            function selection(){
-                var ids=[], wrap=document.getElementById('cfbcolorvivo-dns-list');
-                if(!wrap) return ids;
-                wrap.querySelectorAll('input[type=\"checkbox\"][name=\"'+optName+'[selected_records][]\"][checked], input[type=\"checkbox\"][name=\"'+optName+'[selected_records][]\"]:checked').forEach(function(cb){ ids.push(cb.value); });
-                return ids;
+            var listWrap = document.getElementById('cfbcolorvivo-dns-list');
+            var boxSelector = 'input[type=\"checkbox\"][name=\"'+optName+'[selected_records][]\"]';
+            var dirty = false;
+            var currentFilter = 'all';
+
+            function println(msg){
+                if (consolePre) { var ts=new Date().toLocaleTimeString(); consolePre.textContent += '['+ts+'] '+msg+'\\n'; }
+                // En modo simple la consola tecnica esta oculta: mostramos siempre el ultimo mensaje.
+                if (consoleSimple) consoleSimple.textContent = msg;
             }
-            var actionBtns = ['cfbcolorvivo-test','cfbcolorvivo-check','cfbcolorvivo-off','cfbcolorvivo-on','cfbcolorvivo-diag','cfbcolorvivo-refresh-ips','cfbcolorvivo-clear-cache','cfbcolorvivo-refresh-diag'];
+            function clearConsole(){
+                if (consolePre) consolePre.textContent='';
+                if (consoleSimple) consoleSimple.textContent='';
+            }
+            function showWait(show){ if (warn) warn.style.display = show ? '' : 'none'; }
+
+            function boxes(){
+                if (!listWrap) return [];
+                return Array.prototype.slice.call(listWrap.querySelectorAll(boxSelector));
+            }
+            function selection(){
+                return boxes().filter(function(cb){ return cb.checked; }).map(function(cb){ return cb.value; });
+            }
+            function rowVisible(cb){
+                var tr = cb.closest('tr');
+                return !!tr && tr.style.display !== 'none';
+            }
+            function setDirty(v){
+                dirty = v;
+                var flag = document.getElementById('cfbcolorvivo-dirty');
+                if (flag) flag.hidden = !v;
+                var save = document.getElementById('cfbcolorvivo-save-selection');
+                if (save) save.classList.toggle('cfbcolorvivo-pulse', v);
+            }
+            function syncUI(){
+                var all = boxes();
+                var checked = all.filter(function(cb){ return cb.checked; });
+                var counter = document.getElementById('cfbcolorvivo-sel-count');
+                if (counter) counter.textContent = String(checked.length);
+                all.forEach(function(cb){
+                    var tr = cb.closest('tr');
+                    if (tr) tr.classList.toggle('is-selected', cb.checked);
+                });
+                var visible = all.filter(rowVisible);
+                var master = document.getElementById('cfbcolorvivo-check-all');
+                if (master){
+                    var visChecked = visible.filter(function(cb){ return cb.checked; }).length;
+                    master.checked = visible.length > 0 && visChecked === visible.length;
+                    master.indeterminate = visChecked > 0 && visChecked < visible.length;
+                }
+            }
+            function applyFilter(type){
+                currentFilter = type;
+                if (!listWrap) return;
+                listWrap.querySelectorAll('tr[data-cfb-type]').forEach(function(tr){
+                    tr.style.display = (type === 'all' || tr.getAttribute('data-cfb-type') === type) ? '' : 'none';
+                });
+                listWrap.querySelectorAll('[data-cfb-filter]').forEach(function(b){
+                    b.classList.toggle('is-active', b.getAttribute('data-cfb-filter') === type);
+                });
+                syncUI();
+            }
+
+            var actionBtns = ['cfbcolorvivo-save-selection','cfbcolorvivo-test','cfbcolorvivo-check','cfbcolorvivo-off','cfbcolorvivo-on','cfbcolorvivo-diag','cfbcolorvivo-refresh-ips','cfbcolorvivo-clear-cache','cfbcolorvivo-refresh-diag'];
             function setBtnsDisabled(disabled){
                 actionBtns.forEach(function(id){ var b=document.getElementById(id); if(b) b.disabled=disabled; });
             }
@@ -996,8 +1096,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
                 setBtnsDisabled(true);
                 var data=new FormData();
                 data.append('action', action);
-                var testBtn=document.getElementById('cfbcolorvivo-test');
-                data.append('_ajax_nonce', testBtn ? testBtn.dataset.nonce : '');
+                data.append('_ajax_nonce', nonce);
                 var sel = selection();
                 sel.forEach(function(id){ data.append('selected[]', id); });
                 data.append(optName+'[selected_records]', JSON.stringify(sel));
@@ -1017,7 +1116,10 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
                 .finally(function(){ showWait(false); setBtnsDisabled(false); });
             }
             function refreshTable(html){
-                var wrap=document.getElementById('cfbcolorvivo-dns-list'); if(wrap && html) wrap.innerHTML=html;
+                if (listWrap && html) {
+                    listWrap.innerHTML = html;
+                    applyFilter(currentFilter);
+                }
             }
             function refreshSummary(callback){
                 post('cfbcolorvivo_get_status', null, function(res){
@@ -1036,15 +1138,69 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
                 });
             }
 
+            // Delegacion: la tabla se regenera por AJAX, asi que no atamos listeners a cada fila.
+            if (listWrap) {
+                listWrap.addEventListener('change', function(e){
+                    var t = e.target;
+                    if (t && t.id === 'cfbcolorvivo-check-all'){
+                        boxes().filter(rowVisible).forEach(function(cb){ cb.checked = t.checked; });
+                        setDirty(true); syncUI(); return;
+                    }
+                    if (t && t.matches && t.matches(boxSelector)){ setDirty(true); syncUI(); }
+                });
+                listWrap.addEventListener('click', function(e){
+                    var f = e.target.closest ? e.target.closest('[data-cfb-filter]') : null;
+                    if (f){ e.preventDefault(); applyFilter(f.getAttribute('data-cfb-filter')); return; }
+                    var q = e.target.closest ? e.target.closest('[data-cfb-select]') : null;
+                    if (q){
+                        e.preventDefault();
+                        var mode = q.getAttribute('data-cfb-select');
+                        if (mode === 'all' || mode === 'none'){
+                            boxes().filter(rowVisible).forEach(function(cb){ cb.checked = (mode === 'all'); });
+                        } else {
+                            var wanted = mode.split(',');
+                            boxes().forEach(function(cb){
+                                var tr = cb.closest('tr');
+                                var ty = tr ? tr.getAttribute('data-cfb-type') : '';
+                                cb.checked = wanted.indexOf(ty) !== -1;
+                            });
+                        }
+                        setDirty(true); syncUI();
+                    }
+                });
+            }
+            window.addEventListener('beforeunload', function(e){
+                if (!dirty) return;
+                e.preventDefault();
+                e.returnValue = '';
+            });
+
+            var saveBtn = document.getElementById('cfbcolorvivo-save-selection');
+            if (saveBtn) {
+                saveBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Guardando selección de registros…');
+                    post('cfbcolorvivo_save_selection', null, function(res){
+                        if (res && res.success){
+                            setDirty(false);
+                            refreshTable(res.data && res.data.html ? res.data.html : '');
+                            println(res.data && res.data.message ? res.data.message : 'Selección guardada.');
+                        } else {
+                            println('Error: ' + ((res && res.data && res.data.message) ? res.data.message : 'no se pudo guardar la selección.'));
+                        }
+                    });
+                });
+            }
             var testBtn = document.getElementById('cfbcolorvivo-test');
             if (testBtn) {
                 testBtn.addEventListener('click', function(e){
                     e.preventDefault(); clearConsole(); showWait(true);
-                    println('Probar conexión y cargar DNS: iniciando…');
+                    println('Recargando registros DNS desde Cloudflare…');
                     post('cfbcolorvivo_test_connection', null, function(res){
                         if (res.success){
+                            setDirty(false);
                             refreshTable(res.data && res.data.html ? res.data.html : '');
-                            println('Completado.');
+                            println('Lista actualizada y selección guardada.');
                         } else {
                             if (res.data && res.data.message) println('Error: ' + res.data.message);
                             if (res.data && res.data.http) println('HTTP: ' + res.data.http);
@@ -1060,6 +1216,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
                     println('Comprobación manual: ejecutando…');
                     post('cfbcolorvivo_manual_check', null, function(res){
                         if (res.success){
+                            setDirty(false);
                             var d=res.data||{};
                             println('Última comprobación: '+(d.last||'—'));
                             println('General (bloqueos IPs): '+(d.general||'—'));
@@ -1072,44 +1229,37 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
                     });
                 });
             }
-            var offBtn = document.getElementById('cfbcolorvivo-off');
-            if (offBtn) {
-                offBtn.addEventListener('click', function(e){
+            function forceAction(btnId, action, question, startMsg){
+                var btn = document.getElementById(btnId);
+                if (!btn) return;
+                btn.addEventListener('click', function(e){
                     e.preventDefault();
-                    if (!confirm('¿Seguro que quieres forzar Proxy OFF (DNS Only) en los registros seleccionados?')) return;
+                    var n = selection().length;
+                    if (n === 0){
+                        clearConsole();
+                        println('No hay ningún registro marcado. Marca al menos uno y pulsa \"Guardar selección\".');
+                        return;
+                    }
+                    if (!confirm(question.replace('%d', n))) return;
                     clearConsole(); showWait(true);
-                    println('Forzar Proxy OFF (DNS Only): iniciando…');
-                    post('cfbcolorvivo_force_deactivate', null, function(res){
+                    println(startMsg);
+                    post(action, null, function(res){
                         if (res.success){
+                            setDirty(false);
                             refreshTable(res.data && res.data.html ? res.data.html : '');
                             if (res.data && res.data.message) println(res.data.message);
                             if (res.data && res.data.report) println(res.data.report);
                             refreshSummary();
                         } else {
+                            if (res.data && res.data.message) println('Error: ' + res.data.message);
                             if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
                         }
                     });
                 });
             }
-            var onBtn = document.getElementById('cfbcolorvivo-on');
-            if (onBtn) {
-                onBtn.addEventListener('click', function(e){
-                    e.preventDefault();
-                    if (!confirm('¿Seguro que quieres forzar Proxy ON (CDN) en los registros seleccionados?')) return;
-                    clearConsole(); showWait(true);
-                    println('Forzar Proxy ON (CDN): iniciando…');
-                    post('cfbcolorvivo_force_activate', null, function(res){
-                        if (res.success){
-                            refreshTable(res.data && res.data.html ? res.data.html : '');
-                            if (res.data && res.data.message) println(res.data.message);
-                            if (res.data && res.data.report) println(res.data.report);
-                            refreshSummary();
-                        } else {
-                            if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
-                        }
-                    });
-                });
-            }
+            forceAction('cfbcolorvivo-off', 'cfbcolorvivo_force_deactivate', '¿Forzar Proxy OFF (DNS Only) en los %d registros marcados?', 'Forzar Proxy OFF (DNS Only): iniciando…');
+            forceAction('cfbcolorvivo-on', 'cfbcolorvivo_force_activate', '¿Forzar Proxy ON (CDN) en los %d registros marcados?', 'Forzar Proxy ON (CDN): iniciando…');
+
             var diagBtn = document.getElementById('cfbcolorvivo-diag');
             if (diagBtn) {
                 diagBtn.addEventListener('click', function(e){
@@ -1165,6 +1315,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
                     });
                 });
             }
+            syncUI();
         })();";
 	}
 
@@ -1872,25 +2023,34 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		echo '<p>Zona: <code>' . esc_html( $this->mask( $s['cloudflare_zone_id'] ) ) . '</code> · Auth: <strong>' . esc_html( $auth_label[ $s['auth_type'] ] ?? $s['auth_type'] ) . '</strong> · ';
 		echo 'Dominio: <strong>' . esc_html( $domain ) . '</strong> — <a href="' . esc_url( $check_url ) . '" target="_blank" rel="noopener">Abrir comprobador</a></p>';
 
-		echo '<h2 class="title">Registros DNS en caché</h2>';
-		echo '<p class="description">Debes seleccionar los registros que debemos controlar y pulsar "Probar conexión y cargar DNS" para actualizar el listado.</p>';
+		echo '<h2 class="title">1. Registros DNS que gestiona el plugin</h2>';
+		echo '<p class="description">Marca solo los registros cuyo proxy debe conmutar el plugin durante los bloqueos y pulsa <strong>Guardar selección</strong>. ';
+		echo 'Los registros que dejes sin marcar no se tocan nunca. Si solo quieres gestionar los <code>A</code>, usa el botón <em>Solo A</em>.</p>';
 		echo '<div id="cfbcolorvivo-dns-list">';
 		if ( empty( $cache ) ) {
-			echo '<p>No hay registros en caché. Pulsa "Probar conexión y cargar DNS".</p>';
+			echo '<p>No hay registros en caché. Pulsa "Recargar desde Cloudflare".</p>';
 		} else {
 			$this->echo_dns_table( $cache, $sel );
 		}
 		echo '</div>';
 
-		echo '<p style="margin-top:10px">';
-		echo '<button class="button button-primary" id="cfbcolorvivo-test" data-nonce="' . esc_attr( $nonce ) . '">Probar conexión y cargar DNS</button> ';
-		echo '<button class="button" id="cfbcolorvivo-check">Comprobación manual ahora</button> ';
-		echo '<button class="button" id="cfbcolorvivo-off">Forzar Proxy OFF (DNS Only)</button> ';
-		echo '<button class="button" id="cfbcolorvivo-on">Forzar Proxy ON (CDN)</button> ';
-		if ( $is_advanced ) {
-			echo '<button class="button" id="cfbcolorvivo-diag">Diagnóstico WP-Cron</button>';
-		}
-		echo '</p>';
+		echo '<div class="cfbcolorvivo-actions" id="cfbcolorvivo-actions">';
+		echo '<div class="cfbcolorvivo-actionrow">';
+		echo '<button class="button button-primary" id="cfbcolorvivo-save-selection">Guardar selección</button> ';
+		echo '<button class="button" id="cfbcolorvivo-test" data-nonce="' . esc_attr( $nonce ) . '">Recargar desde Cloudflare</button>';
+		echo '<span class="cfbcolorvivo-hint">Guarda qué registros gestiona el plugin. Recargar trae la lista actualizada de tu zona sin perder lo marcado.</span>';
+		echo '</div>';
+		echo '</div>';
+
+		echo '<h2 class="title" style="margin-top:22px;">2. Acciones manuales</h2>';
+		echo '<p class="description">El plugin actúa solo automáticamente. Estos botones son para intervenir a mano y se aplican <strong>únicamente a los registros guardados arriba</strong>.</p>';
+		echo '<div class="cfbcolorvivo-actions">';
+		echo '<div class="cfbcolorvivo-actionrow">';
+		echo '<button class="button" id="cfbcolorvivo-check">Comprobar bloqueos ahora</button> ';
+		echo '<button class="button cfbcolorvivo-danger" id="cfbcolorvivo-off">Forzar Proxy OFF (DNS Only)</button> ';
+		echo '<button class="button" id="cfbcolorvivo-on">Forzar Proxy ON (CDN)</button>';
+		echo '</div>';
+		echo '</div>';
 
 		// Consola técnica solo en modo avanzado; en simple se muestra un mensaje inline minimalista.
 		if ( $is_advanced ) {
@@ -1927,8 +2087,9 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			$this->echo_feed_diagnostics( $this->get_feed_diagnostics() );
 			echo '</div>';
 			echo '<p style="margin-top:8px">';
-			echo '<button class="button" id="cfbcolorvivo-clear-cache">Borrar caché local (data.json)</button> ';
-			echo '<button class="button" id="cfbcolorvivo-refresh-diag">Refrescar diagnóstico</button>';
+			echo '<button class="button" id="cfbcolorvivo-refresh-diag">Refrescar diagnóstico</button> ';
+			echo '<button class="button" id="cfbcolorvivo-diag">Diagnóstico WP-Cron</button> ';
+			echo '<button class="button cfbcolorvivo-danger" id="cfbcolorvivo-clear-cache">Borrar caché local (data.json)</button>';
 			echo '</p>';
 		}
 
@@ -1990,8 +2151,51 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 	 * @param array $selected Currently selected record IDs.
 	 */
 	private function echo_dns_table( $records, $selected ) {
-		echo '<table class="widefat striped"><thead><tr>';
-		echo '<th style="width:28px;"></th><th>Nombre</th><th>Tipo</th><th>Contenido</th><th>Proxied</th><th>TTL</th>';
+		$selected  = (array) $selected;
+		$domain    = $this->get_site_domain();
+		$total     = count( $records );
+		$sel_count = 0;
+		$types     = array();
+		foreach ( $records as $r ) {
+			if ( in_array( $r['id'] ?? '', $selected, true ) ) {
+				++$sel_count;
+			}
+			$rtype = $r['type'] ?? '';
+			if ( $rtype && ! in_array( $rtype, $types, true ) ) {
+				$types[] = $rtype;
+			}
+		}
+		sort( $types );
+
+		// Barra de filtros y selección rápida: resuelve el caso "solo quiero gestionar los A".
+		echo '<div class="cfbcolorvivo-tabletools">';
+		echo '<div class="cfbcolorvivo-toolgroup"><span class="cfbcolorvivo-toollabel">Mostrar:</span>';
+		echo '<button type="button" class="button button-small cfbcolorvivo-filter is-active" data-cfb-filter="all">Todos <span class="cfbcolorvivo-badge">' . esc_html( (string) $total ) . '</span></button>';
+		foreach ( $types as $t ) {
+			$n = 0;
+			foreach ( $records as $r ) {
+				if ( ( $r['type'] ?? '' ) === $t ) {
+					++$n;
+				}
+			}
+			echo '<button type="button" class="button button-small cfbcolorvivo-filter" data-cfb-filter="' . esc_attr( $t ) . '">' . esc_html( $t ) . ' <span class="cfbcolorvivo-badge">' . esc_html( (string) $n ) . '</span></button>';
+		}
+		echo '</div>';
+		echo '<div class="cfbcolorvivo-toolgroup"><span class="cfbcolorvivo-toollabel">Marcar:</span>';
+		echo '<button type="button" class="button button-small" data-cfb-select="all" title="Marca todos los registros visibles con el filtro actual">Todo lo visible</button>';
+		if ( in_array( 'A', $types, true ) ) {
+			echo '<button type="button" class="button button-small" data-cfb-select="A" title="Marca solo los registros A y desmarca el resto (ignora CNAME y AAAA)">Solo A</button>';
+		}
+		if ( in_array( 'A', $types, true ) && in_array( 'AAAA', $types, true ) ) {
+			echo '<button type="button" class="button button-small" data-cfb-select="A,AAAA" title="Marca los registros A y AAAA y desmarca el resto (ignora CNAME)">A + AAAA</button>';
+		}
+		echo '<button type="button" class="button button-small" data-cfb-select="none" title="Desmarca todos los registros visibles con el filtro actual">Desmarcar</button>';
+		echo '</div>';
+		echo '</div>';
+
+		echo '<table class="widefat striped cfbcolorvivo-dns-table"><thead><tr>';
+		echo '<th class="check-column"><input type="checkbox" id="cfbcolorvivo-check-all" title="Marcar o desmarcar todos los registros visibles"></th>';
+		echo '<th>Nombre</th><th>Tipo</th><th>Contenido</th><th>Proxied</th><th>TTL</th>';
 		echo '</tr></thead><tbody>';
 		foreach ( $records as $r ) {
 			$id      = $r['id'] ?? '';
@@ -2000,17 +2204,36 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			$cont    = $r['content'] ?? '';
 			$px      = array_key_exists( 'proxied', $r ) ? $r['proxied'] : null;
 			$ttl     = $r['ttl'] ?? '';
-			$checked = in_array( $id, (array) $selected, true ) ? ' checked' : '';
-			echo '<tr>';
-			echo '<td><input type="checkbox" name="' . esc_attr( $this->option_name ) . '[selected_records][]" value="' . esc_attr( $id ) . '"' . esc_attr( $checked ) . '></td>';
-			echo '<td>' . esc_html( $name ) . '</td>';
-			echo '<td>' . esc_html( $type ) . '</td>';
-			echo '<td>' . esc_html( $cont ) . '</td>';
-			echo '<td>' . ( null === $px ? '—' : ( $px ? 'ON' : 'OFF' ) ) . '</td>';
-			echo '<td>' . esc_html( $ttl ) . '</td>';
+			$is_sel  = in_array( $id, $selected, true );
+			$is_site = ( $domain === $name || 'www.' . $domain === $name );
+			$row_cls = 'cfbcolorvivo-row' . ( $is_sel ? ' is-selected' : '' );
+			$cb_id   = 'cfbcolorvivo-rec-' . md5( $id );
+			echo '<tr class="' . esc_attr( $row_cls ) . '" data-cfb-type="' . esc_attr( $type ) . '">';
+			echo '<td class="check-column"><input type="checkbox" id="' . esc_attr( $cb_id ) . '" name="' . esc_attr( $this->option_name ) . '[selected_records][]" value="' . esc_attr( $id ) . '"' . ( $is_sel ? ' checked' : '' ) . '></td>';
+			echo '<td><label for="' . esc_attr( $cb_id ) . '"><strong>' . esc_html( $name ) . '</strong></label>';
+			if ( $is_site ) {
+				echo ' <span class="cfbcolorvivo-tag is-site">tu dominio</span>';
+			}
+			if ( null === $px ) {
+				echo ' <span class="cfbcolorvivo-tag is-muted" title="Este tipo de registro no puede pasar por el proxy de Cloudflare">no proxiable</span>';
+			}
+			echo '</td>';
+			echo '<td><code>' . esc_html( $type ) . '</code></td>';
+			echo '<td class="cfbcolorvivo-content">' . esc_html( $cont ) . '</td>';
+			if ( null === $px ) {
+				echo '<td><span class="cfbcolorvivo-pill is-na">&mdash;</span></td>';
+			} elseif ( $px ) {
+				echo '<td><span class="cfbcolorvivo-pill is-on">Proxied (CDN)</span></td>';
+			} else {
+				echo '<td><span class="cfbcolorvivo-pill is-off">DNS Only</span></td>';
+			}
+			echo '<td>' . esc_html( 1 === (int) $ttl ? 'Auto' : (string) $ttl ) . '</td>';
 			echo '</tr>';
 		}
 		echo '</tbody></table>';
+
+		echo '<p class="cfbcolorvivo-count"><span id="cfbcolorvivo-sel-count">' . esc_html( (string) $sel_count ) . '</span> de ' . esc_html( (string) $total ) . ' registros seleccionados.';
+		echo ' <span id="cfbcolorvivo-dirty" class="cfbcolorvivo-dirty" hidden>Cambios sin guardar &mdash; pulsa <strong>Guardar selecci&oacute;n</strong>.</span></p>';
 	}
 
 	/* ================== Verificación rápida (para settings) ================== */
@@ -2766,7 +2989,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 				array(
 					'timeout'     => 25,
 					'redirection' => 5,
-					'user-agent'  => 'ESFB/1.9.7; ' . home_url( '/' ),
+					'user-agent'  => 'ESFB/1.9.8; ' . home_url( '/' ),
 				)
 			);
 			if ( is_wp_error( $resp ) ) {
@@ -3288,7 +3511,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		$site    = get_bloginfo( 'name' );
 		$home    = home_url( '/' );
 		$mgr_url = admin_url( 'admin.php?page=cfbcolorvivo-main' );
-		$version = '1.9.7';
+		$version = '1.9.8';
 
 		if ( $now_active ) {
 			/* translators: %s is the site name. */
@@ -3330,6 +3553,20 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		$s = $this->get_settings();
         // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce is verified in the calling AJAX handler
 		$sel = isset( $_POST['selected'] ) ? array_map( 'sanitize_text_field', wp_unslash( (array) $_POST['selected'] ) ) : array();
+		$sel = array_values( array_unique( array_filter( $sel ) ) );
+
+		// Descartar ids que ya no existan en la zona (registros borrados en Cloudflare).
+		$cache = isset( $s['dns_records_cache'] ) ? (array) $s['dns_records_cache'] : array();
+		if ( ! empty( $cache ) ) {
+			$known = array();
+			foreach ( $cache as $rec ) {
+				if ( ! empty( $rec['id'] ) ) {
+					$known[] = $rec['id'];
+				}
+			}
+			$sel = array_values( array_intersect( $sel, $known ) );
+		}
+
 		$current_records = isset( $s['selected_records'] ) ? $s['selected_records'] : array();
 		if ( $sel !== $current_records ) {
 			$s['selected_records'] = $sel;
@@ -3337,6 +3574,50 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			$this->log( 'Seleccion de registros persistida: ' . count( $sel ) . ' ids.' );
 		}
 		return $sel;
+	}
+
+	/** AJAX handler: persist the DNS record selection without calling Cloudflare. */
+	public function ajax_save_selection() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error(
+				array(
+					'message' => 'Permiso denegado',
+					'log'     => array(),
+				)
+			);
+		}
+		check_ajax_referer( 'cfbcolorvivo_nonce' );
+
+		$sel = $this->persist_selected_from_ajax();
+		$s   = $this->get_settings();
+
+		ob_start();
+		$this->echo_dns_table( isset( $s['dns_records_cache'] ) ? (array) $s['dns_records_cache'] : array(), $sel );
+		$html = ob_get_clean();
+
+		$this->log_event(
+			'manual',
+			'Selección de registros DNS guardada',
+			array(
+				'usuario'       => $this->current_user_label(),
+				'seleccionados' => count( $sel ),
+			)
+		);
+
+		if ( empty( $sel ) ) {
+			$msg = 'Selección guardada: no hay ningún registro marcado, el plugin no tocará tu DNS.';
+		} else {
+			/* translators: %d is the number of selected DNS records. */
+			$msg = sprintf( 'Selección guardada: el plugin gestionará %d registro(s).', count( $sel ) );
+		}
+
+		wp_send_json_success(
+			array(
+				'html'    => $html,
+				'count'   => count( $sel ),
+				'message' => $msg,
+			)
+		);
 	}
 
 	/** AJAX handler: test Cloudflare connection and refresh DNS cache. */

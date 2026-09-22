@@ -2,9 +2,9 @@
 Contributors: dcarrero
 Tags: cloudflare, dns, football, bypass, ip-blocking
 Requires at least: 5.0
-Tested up to: 6.9
+Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.9.7
+Stable tag: 1.9.8
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -191,9 +191,20 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 == Screenshots ==
 
 1. Settings page: select Cloudflare authentication type (Global API Key, User Token or Account Token), enter credentials, configure check interval, cooldown after disabling Cloudflare, the "Force Proxy OFF during football" override, log retention, and the external cron token.
-2. Operation page: live block status from hayahora.futbol, cached DNS records with current Proxied state per record, manual controls (test connection, force Proxy ON/OFF, manual check, WP-Cron diagnostics), and a sidebar with related links.
+2. Operation page: live block status from hayahora.futbol, cached DNS records with current Proxied state per record, manual controls (save selection, reload from Cloudflare, force Proxy ON/OFF, manual check, WP-Cron diagnostics), and a sidebar with related links.
 
 == Changelog ==
+
+= 1.9.8 =
+* FIX: Unchecking a DNS record had no effect — the selection was read from the `checked` HTML attribute instead of the live checkbox state, so every record stayed selected and manual actions were applied to the whole zone. Reported by users; anyone who had narrowed the selection should re-check it after updating
+* NEW: Explicit "Save selection" button, so choosing which records the plugin manages no longer requires triggering a Cloudflare action. An "Unsaved changes" warning appears when the selection differs from what is stored
+* NEW: Record type filters (A / AAAA / CNAME) and quick-select buttons ("Only A", "A + AAAA", "Select all visible", "Deselect") — this is the supported way to tell the plugin to manage only A records and ignore CNAMEs
+* NEW: Select-all checkbox in the table header, live "X of Y records selected" counter, per-record badges for your own domain and for records Cloudflare cannot proxy, and readable "Proxied (CDN)" / "DNS Only" state pills
+* UX: Operation page buttons regrouped into numbered steps — "1. DNS records" (Save selection, Reload from Cloudflare) and "2. Manual actions" (Check blocks, Force Proxy OFF/ON). WP-Cron diagnostics moved next to the other diagnostic tools in Advanced mode
+* FIX: In Simple mode the action feedback was written to a hidden element, so buttons appeared to do nothing. Progress and result messages are now visible in both modes
+* FIX: Forcing Proxy ON/OFF with nothing selected now explains what to do instead of failing silently, and the confirmation dialog states how many records will be changed
+* FIX: Record IDs that no longer exist in the Cloudflare zone are dropped from the stored selection instead of being kept forever
+* COMPAT: Tested up to WordPress 7.1 (no jQuery/jQuery UI usage, so the 7.1 jQuery UI 1.14.2 update does not affect this plugin)
 
 = 1.9.7 =
 * SECURITY: Action log file name now includes a per-site random secret, so the log URL is not guessable on servers where the directory .htaccess is ignored (nginx, LiteSpeed). Existing logs are migrated automatically to the new name on first write. Logged IPs remain anonymized (GDPR)
@@ -325,6 +336,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * Integrated cron system
 
 == Upgrade Notice ==
+
+= 1.9.8 =
+Important fix: unchecking DNS records did nothing, so manual actions were applied to every record in the zone. Adds a "Save selection" button, record type filters (Only A / A + AAAA) and clearer feedback. Review your selected records after updating.
 
 = 1.9.7 =
 Hardening and performance release: unguessable log file name (protects logs on nginx/LiteSpeed where .htaccess is ignored) and throttled network calls so the Operation page loads without redundant blocking requests. Recommended for everyone.

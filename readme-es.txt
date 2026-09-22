@@ -2,9 +2,9 @@
 Contributors: dcarrero
 Tags: cloudflare, dns, futbol, bypass, bloqueo-ip
 Requires at least: 5.0
-Tested up to: 6.9
+Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.9.6
+Stable tag: 1.9.8
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -191,9 +191,20 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 == Screenshots ==
 
 1. Página de Configuración: selecciona el tipo de autenticación de Cloudflare (Global API Key, Token de usuario o Token de cuenta), introduce las credenciales, configura el intervalo de comprobación, el enfriamiento tras desactivar Cloudflare, el override "Forzar Proxy OFF durante fútbol", la retención de logs y el token de cron externo.
-2. Página de Operación: estado en vivo de los bloqueos según hayahora.futbol, registros DNS en caché con el estado Proxied actual de cada uno, controles manuales (probar conexión, forzar Proxy ON/OFF, comprobación manual, diagnóstico WP-Cron) y barra lateral con enlaces relacionados.
+2. Página de Operación: estado en vivo de los bloqueos según hayahora.futbol, registros DNS en caché con el estado Proxied actual de cada uno, controles manuales (guardar selección, recargar desde Cloudflare, forzar Proxy ON/OFF, comprobación manual, diagnóstico WP-Cron) y barra lateral con enlaces relacionados.
 
 == Changelog ==
+
+= 1.9.8 =
+* CORRECCIÓN: Desmarcar un registro DNS no tenía ningún efecto — la selección se leía del atributo HTML `checked` en lugar del estado real de la casilla, así que todos los registros seguían seleccionados y las acciones manuales se aplicaban a la zona entera. Reportado por usuarios; si habías reducido la selección, revísala después de actualizar
+* NUEVO: Botón explícito "Guardar selección", para elegir qué registros gestiona el plugin sin tener que lanzar una acción contra Cloudflare. Aparece un aviso de "Cambios sin guardar" cuando la selección no coincide con la guardada
+* NUEVO: Filtros por tipo de registro (A / AAAA / CNAME) y botones de marcado rápido ("Solo A", "A + AAAA", "Todo lo visible", "Desmarcar") — es la forma de decirle al plugin que gestione solo los registros A e ignore los CNAME
+* NUEVO: Casilla de marcar todo en la cabecera de la tabla, contador "X de Y registros seleccionados" en vivo, etiquetas por registro para tu propio dominio y para los que Cloudflare no puede proxiar, y estados legibles "Proxied (CDN)" / "DNS Only"
+* UX: Botones de la página de Operación reagrupados en pasos numerados — "1. Registros DNS" (Guardar selección, Recargar desde Cloudflare) y "2. Acciones manuales" (Comprobar bloqueos, Forzar Proxy OFF/ON). El diagnóstico de WP-Cron pasa junto al resto de herramientas de diagnóstico en modo Avanzado
+* CORRECCIÓN: En modo Simple el resultado de las acciones se escribía en un elemento oculto, así que parecía que los botones no hacían nada. Ahora los mensajes de progreso y resultado se ven en ambos modos
+* CORRECCIÓN: Forzar Proxy ON/OFF sin nada seleccionado ahora explica qué hacer en lugar de fallar en silencio, y el diálogo de confirmación indica cuántos registros se van a cambiar
+* CORRECCIÓN: Los IDs de registros que ya no existen en la zona de Cloudflare se descartan de la selección guardada en lugar de conservarse indefinidamente
+* COMPATIBILIDAD: Probado con WordPress 7.1 (el plugin no usa jQuery ni jQuery UI, así que la actualización a jQuery UI 1.14.2 de 7.1 no le afecta)
 
 = 1.9.7 =
 * SEGURIDAD: El nombre del fichero de log incluye ahora un secreto aleatorio por sitio, de modo que la URL del log no es adivinable en servidores donde se ignora el .htaccess del directorio (nginx, LiteSpeed). Los logs existentes se migran automáticamente al nuevo nombre en la primera escritura. Las IPs registradas siguen anonimizadas (RGPD)
@@ -325,6 +336,9 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 * Sistema de cron integrado
 
 == Upgrade Notice ==
+
+= 1.9.8 =
+Corrección importante: desmarcar registros DNS no hacía nada, así que las acciones manuales se aplicaban a todos los registros de la zona. Añade botón "Guardar selección", filtros por tipo (Solo A / A + AAAA) y mejor feedback. Revisa tus registros seleccionados después de actualizar.
 
 = 1.9.7 =
 Release de hardening y rendimiento: nombre de fichero de log impredecible (protege los logs en nginx/LiteSpeed donde se ignora el .htaccess) y llamadas de red limitadas para que la página de Operación cargue sin peticiones bloqueantes redundantes. Recomendada para todos.
