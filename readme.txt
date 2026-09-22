@@ -1,10 +1,10 @@
 === ES Football Bypass for Cloudflare ===
 Contributors: dcarrero
 Tags: cloudflare, dns, football, bypass, ip-blocking
-Requires at least: 5.0
+Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.9.8
+Stable tag: 2.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -177,6 +177,27 @@ This is the waiting time (default 60 minutes) that the plugin respects before ch
 = How do I verify that cron is working correctly? =
 In the Operation tab, click "WP-Cron Diagnostics" to see the next execution and the result of the last check. You can also review the integrated logs.
 
+== Abilities API ==
+
+Since 2.0.0 the plugin registers five abilities through the WordPress Abilities API (WordPress 6.9 and newer), under the `es-football-bypass` category. This lets the REST API, MCP servers and AI agents read the block status and operate the bypass without going through the admin screens.
+
+Every ability requires the `manage_options` capability, declares JSON Schemas for its input and output, and carries readonly/destructive/idempotent annotations so clients know what is safe to call.
+
+= es-football-bypass/get-status =
+Read-only. Returns whether La Liga IP blocks are active right now, whether this site resolves to a blocked IP, whether the bypass is engaged, the resolved IPs, how many records are managed, and the last check and feed timestamps.
+
+= es-football-bypass/list-dns-records =
+Read-only. Returns the cached DNS records with their proxy state and whether the plugin manages each one. Optional input: `type` (`A`, `AAAA` or `CNAME`) and `managed_only`.
+
+= es-football-bypass/set-managed-records =
+Replaces the list of records the plugin is allowed to switch. Input: `record_ids` (array of Cloudflare record IDs). IDs that do not exist in the zone are returned in `ignored_ids`. Pass an empty array to stop the plugin from touching DNS at all.
+
+= es-football-bypass/run-check =
+Runs the same check as the cron job: fetches the hayahora.futbol feed and applies the bypass policy, which may switch the managed records.
+
+= es-football-bypass/set-proxy =
+Forces the managed records to Proxied (CDN) or DNS Only. Input: `mode` (`on` or `off`). Annotated as destructive, since it changes live DNS at Cloudflare. Returns an error when no records are managed or Cloudflare credentials are missing.
+
 == Logs and Auditing ==
 
 = Where can I see the action history? =
@@ -194,6 +215,17 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 2. Operation page: live block status from hayahora.futbol, cached DNS records with current Proxied state per record, manual controls (save selection, reload from Cloudflare, force Proxy ON/OFF, manual check, WP-Cron diagnostics), and a sidebar with related links.
 
 == Changelog ==
+
+= 2.0.0 =
+* NEW: Abilities API support (WordPress 6.9+). The plugin now registers five abilities under the "ES Football Bypass" category, so the REST API, MCP servers and AI agents can drive the bypass without going through the admin screens: `get-status`, `list-dns-records`, `set-managed-records`, `run-check` and `set-proxy`
+* NEW: `es-football-bypass/get-status` — whether La Liga IP blocks are active, whether this site resolves to a blocked IP, and whether the bypass is currently engaged
+* NEW: `es-football-bypass/list-dns-records` — the cached DNS records with their proxy state and whether the plugin manages each one, filterable by record type or to managed records only
+* NEW: `es-football-bypass/set-managed-records` — replaces the list of records the plugin may switch; IDs missing from the Cloudflare zone are reported back as ignored
+* NEW: `es-football-bypass/run-check` — runs the same check as the cron job and applies the bypass policy
+* NEW: `es-football-bypass/set-proxy` — forces the managed records to Proxied (CDN) or DNS Only. Annotated as destructive so clients ask for confirmation, and it returns a clear error when no records are managed or Cloudflare is not configured
+* All abilities require the `manage_options` capability, declare JSON Schemas for input and output, and carry readonly/destructive/idempotent annotations so agents know what is safe to call
+* COMPAT: Minimum WordPress version raised to 6.9, which is where the Abilities API landed. Sites on older versions stay on 1.9.8, which contains the DNS record selection fix
+* INTERNAL: The "Force Proxy ON/OFF" logic is now shared between the admin AJAX actions and the abilities, so both follow exactly the same path against Cloudflare
 
 = 1.9.8 =
 * FIX: Unchecking a DNS record had no effect — the selection was read from the `checked` HTML attribute instead of the live checkbox state, so every record stayed selected and manual actions were applied to the whole zone. Reported by users; anyone who had narrowed the selection should re-check it after updating
@@ -337,6 +369,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 
 == Upgrade Notice ==
 
+= 2.0.0 =
+Adds Abilities API support (WordPress 6.9+): five abilities let the REST API, MCP servers and AI agents read the block status and control the Cloudflare proxy. Minimum WordPress version is now 6.9.
+
 = 1.9.8 =
 Important fix: unchecking DNS records did nothing, so manual actions were applied to every record in the zone. Adds a "Save selection" button, record type filters (Only A / A + AAAA) and clearer feedback. Review your selected records after updating.
 
@@ -387,7 +422,7 @@ This version adds Cloudflare API Token support (more secure than Global API Key)
 
 == Server Requirements ==
 
-- WordPress 5.0 or higher
+- WordPress 6.9 or higher
 - PHP 7.4 or higher
 - PHP Extensions: curl, json
 - Permissions: Ability to make outbound HTTP requests

@@ -3,14 +3,14 @@
  * Plugin Name: ES Football Bypass for Cloudflare
  * Plugin URI: https://github.com/dcarrero/cf-football-bypass
  * Description: Operates with Cloudflare to toggle between Proxy (ON/CDN) and DNS Only (OFF) based on IP blocks, with persistent DNS cache and AJAX actions. Separate UI: Operation and Settings.
- * Version: 1.9.8
+ * Version: 2.0.0
  * Author: David Carrero Fernandez-Baillo
  * Author URI: https://carrero.es
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: es-football-bypass-for-cloudflare
  * Domain Path: /languages
- * Requires at least: 5.0
+ * Requires at least: 6.9
  * Requires PHP: 7.4
  * Update URI: https://wordpress.org/plugins/es-football-bypass-for-cloudflare/
  *
@@ -117,6 +117,10 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		add_action( 'wp_ajax_cfbcolorvivo_clear_data_cache', array( $this, 'ajax_clear_data_cache' ) );
 		add_action( 'wp_ajax_cfbcolorvivo_feed_diagnostics', array( $this, 'ajax_feed_diagnostics' ) );
 		add_action( 'init', array( $this, 'maybe_process_external_cron' ) );
+
+		// Abilities API (WordPress 6.9+): permite a REST, MCP y agentes operar el bypass.
+		add_action( 'wp_abilities_api_categories_init', array( $this, 'register_ability_category' ) );
+		add_action( 'wp_abilities_api_init', array( $this, 'register_abilities' ) );
 	}
 
 	/* ================== Utilidades ================== */
@@ -948,7 +952,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		}
 
 		// Registrar script handle para asociar inline scripts.
-		wp_register_script( 'cfbcolorvivo-admin', false, array(), '1.9.8', true );
+		wp_register_script( 'cfbcolorvivo-admin', false, array(), '2.0.0', true );
 		wp_enqueue_script( 'cfbcolorvivo-admin' );
 
 		// Pasar datos al JavaScript.
@@ -963,7 +967,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		);
 
 		// Estilos de la interfaz de administración.
-		wp_register_style( 'cfbcolorvivo-admin', false, array(), '1.9.8' );
+		wp_register_style( 'cfbcolorvivo-admin', false, array(), '2.0.0' );
 		wp_enqueue_style( 'cfbcolorvivo-admin' );
 		wp_add_inline_style( 'cfbcolorvivo-admin', $this->get_admin_css() );
 
@@ -2989,7 +2993,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 				array(
 					'timeout'     => 25,
 					'redirection' => 5,
-					'user-agent'  => 'ESFB/1.9.8; ' . home_url( '/' ),
+					'user-agent'  => 'ESFB/2.0.0; ' . home_url( '/' ),
 				)
 			);
 			if ( is_wp_error( $resp ) ) {
@@ -3511,7 +3515,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		$site    = get_bloginfo( 'name' );
 		$home    = home_url( '/' );
 		$mgr_url = admin_url( 'admin.php?page=cfbcolorvivo-main' );
-		$version = '1.9.8';
+		$version = '2.0.0';
 
 		if ( $now_active ) {
 			/* translators: %s is the site name. */
@@ -3544,6 +3548,438 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			set_transient( 'cfbcolorvivo_last_email_sent', time(), $throttle_seconds );
 		}
 		$this->log( '[CFB] Email notificación ' . ( $sent ? 'enviada' : 'FALLÓ' ) . ' a ' . $to . ' (estado=' . ( $now_active ? 'bypass activo' : 'bypass inactivo' ) . ')' );
+	}
+
+	/* ================== Abilities API (WordPress 6.9+) ================== */
+
+	/**
+	 * Register the ability category for this plugin.
+	 *
+	 * Requires WordPress 6.9 or newer, which is the plugin minimum since 2.0.0.
+	 */
+	public function register_ability_category() {
+		wp_register_ability_category(
+			'es-football-bypass',
+			array(
+				'label'       => __( 'ES Football Bypass', 'es-football-bypass-for-cloudflare' ),
+				'description' => __( 'Check La Liga IP block status and control the Cloudflare proxy on the managed DNS records.', 'es-football-bypass-for-cloudflare' ),
+			)
+		);
+	}
+
+	/**
+	 * Permission check shared by every ability.
+	 *
+	 * Abilities run outside the admin screens (REST, MCP, AI agents), so they enforce
+	 * the same capability the admin pages require.
+	 *
+	 * @return bool True when the current user may operate the plugin.
+	 */
+	public function abilities_permission_check() {
+		return current_user_can( 'manage_options' );
+	}
+
+	/**
+	 * Register the plugin abilities so REST and MCP clients can drive the bypass.
+	 */
+	public function register_abilities() {
+		$record_schema = array(
+			'type'       => 'object',
+			'properties' => array(
+				'id'      => array(
+					'type'        => 'string',
+					'description' => __( 'Cloudflare DNS record ID.', 'es-football-bypass-for-cloudflare' ),
+				),
+				'name'    => array( 'type' => 'string' ),
+				'type'    => array( 'type' => 'string' ),
+				'content' => array( 'type' => 'string' ),
+				'proxied' => array(
+					'type'        => array( 'boolean', 'null' ),
+					'description' => __( 'True when the record goes through the Cloudflare CDN, null when the record cannot be proxied.', 'es-football-bypass-for-cloudflare' ),
+				),
+				'managed' => array(
+					'type'        => 'boolean',
+					'description' => __( 'True when the plugin is allowed to switch this record.', 'es-football-bypass-for-cloudflare' ),
+				),
+			),
+		);
+
+		wp_register_ability(
+			'es-football-bypass/get-status',
+			array(
+				'label'               => __( 'Get bypass status', 'es-football-bypass-for-cloudflare' ),
+				'description'         => __( 'Returns whether La Liga IP blocks are active right now, whether this site is among the blocked IPs, and whether the Cloudflare bypass is currently engaged.', 'es-football-bypass-for-cloudflare' ),
+				'category'            => 'es-football-bypass',
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'blocks_active'      => array(
+							'type'        => 'boolean',
+							'description' => __( 'Blocks are active on some IPs right now.', 'es-football-bypass-for-cloudflare' ),
+						),
+						'domain_blocked'     => array(
+							'type'        => 'boolean',
+							'description' => __( 'This site resolves to at least one blocked IP.', 'es-football-bypass-for-cloudflare' ),
+						),
+						'bypass_active'      => array(
+							'type'        => 'boolean',
+							'description' => __( 'The plugin currently has the managed records on DNS Only.', 'es-football-bypass-for-cloudflare' ),
+						),
+						'domain'             => array( 'type' => 'string' ),
+						'domain_ips'         => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'blocked_domain_ips' => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'managed_records'    => array( 'type' => 'integer' ),
+						'last_check'         => array( 'type' => 'string' ),
+						'feed_last_update'   => array( 'type' => 'string' ),
+					),
+				),
+				'execute_callback'    => array( $this, 'ability_get_status' ),
+				'permission_callback' => array( $this, 'abilities_permission_check' ),
+				'meta'                => array(
+					'public'       => true,
+					'show_in_rest' => true,
+					'annotations'  => array(
+						'readonly'    => true,
+						'destructive' => false,
+						'idempotent'  => true,
+					),
+				),
+			)
+		);
+
+		wp_register_ability(
+			'es-football-bypass/list-dns-records',
+			array(
+				'label'               => __( 'List DNS records', 'es-football-bypass-for-cloudflare' ),
+				'description'         => __( 'Lists the cached Cloudflare DNS records with their current proxy state and whether the plugin manages each one. Optionally filtered by record type.', 'es-football-bypass-for-cloudflare' ),
+				'category'            => 'es-football-bypass',
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(
+						'type'         => array(
+							'type'        => 'string',
+							'enum'        => array( 'A', 'AAAA', 'CNAME' ),
+							'description' => __( 'Return only records of this type.', 'es-football-bypass-for-cloudflare' ),
+						),
+						'managed_only' => array(
+							'type'        => 'boolean',
+							'description' => __( 'Return only the records the plugin manages.', 'es-football-bypass-for-cloudflare' ),
+						),
+					),
+				),
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'records' => array(
+							'type'  => 'array',
+							'items' => $record_schema,
+						),
+						'total'   => array( 'type' => 'integer' ),
+					),
+				),
+				'execute_callback'    => array( $this, 'ability_list_dns_records' ),
+				'permission_callback' => array( $this, 'abilities_permission_check' ),
+				'meta'                => array(
+					'public'       => true,
+					'show_in_rest' => true,
+					'annotations'  => array(
+						'readonly'    => true,
+						'destructive' => false,
+						'idempotent'  => true,
+					),
+				),
+			)
+		);
+
+		wp_register_ability(
+			'es-football-bypass/set-managed-records',
+			array(
+				'label'               => __( 'Set managed DNS records', 'es-football-bypass-for-cloudflare' ),
+				'description'         => __( 'Replaces the list of DNS records the plugin is allowed to switch. Record IDs that do not exist in the Cloudflare zone are ignored. Pass an empty array to stop the plugin from touching DNS at all.', 'es-football-bypass-for-cloudflare' ),
+				'category'            => 'es-football-bypass',
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(
+						'record_ids' => array(
+							'type'        => 'array',
+							'items'       => array( 'type' => 'string' ),
+							'description' => __( 'Cloudflare DNS record IDs to manage.', 'es-football-bypass-for-cloudflare' ),
+						),
+					),
+					'required'   => array( 'record_ids' ),
+				),
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'managed_records' => array( 'type' => 'integer' ),
+						'ignored_ids'     => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+					),
+				),
+				'execute_callback'    => array( $this, 'ability_set_managed_records' ),
+				'permission_callback' => array( $this, 'abilities_permission_check' ),
+				'meta'                => array(
+					'public'       => true,
+					'show_in_rest' => true,
+					'annotations'  => array(
+						'readonly'    => false,
+						'destructive' => false,
+						'idempotent'  => true,
+					),
+				),
+			)
+		);
+
+		wp_register_ability(
+			'es-football-bypass/run-check',
+			array(
+				'label'               => __( 'Run block check now', 'es-football-bypass-for-cloudflare' ),
+				'description'         => __( 'Runs the same check the cron job runs: fetches the hayahora.futbol feed and applies the bypass policy, which may switch the managed records between Proxied and DNS Only.', 'es-football-bypass-for-cloudflare' ),
+				'category'            => 'es-football-bypass',
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'blocks_active'  => array( 'type' => 'boolean' ),
+						'domain_blocked' => array( 'type' => 'boolean' ),
+						'bypass_active'  => array( 'type' => 'boolean' ),
+						'last_check'     => array( 'type' => 'string' ),
+					),
+				),
+				'execute_callback'    => array( $this, 'ability_run_check' ),
+				'permission_callback' => array( $this, 'abilities_permission_check' ),
+				'meta'                => array(
+					'public'       => true,
+					'show_in_rest' => true,
+					'annotations'  => array(
+						'readonly'    => false,
+						'destructive' => false,
+						'idempotent'  => false,
+					),
+				),
+			)
+		);
+
+		wp_register_ability(
+			'es-football-bypass/set-proxy',
+			array(
+				'label'               => __( 'Force proxy on or off', 'es-football-bypass-for-cloudflare' ),
+				'description'         => __( 'Forces the managed DNS records to Proxied (CDN) or DNS Only, exactly like the manual buttons on the Operation page. Changes live DNS at Cloudflare.', 'es-football-bypass-for-cloudflare' ),
+				'category'            => 'es-football-bypass',
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(
+						'mode' => array(
+							'type'        => 'string',
+							'enum'        => array( 'on', 'off' ),
+							'description' => __( '"on" restores Proxied (CDN); "off" switches to DNS Only.', 'es-football-bypass-for-cloudflare' ),
+						),
+					),
+					'required'   => array( 'mode' ),
+				),
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'mode'      => array( 'type' => 'string' ),
+						'changed'   => array( 'type' => 'integer' ),
+						'unchanged' => array( 'type' => 'integer' ),
+						'failed'    => array( 'type' => 'integer' ),
+						'report'    => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+					),
+				),
+				'execute_callback'    => array( $this, 'ability_set_proxy' ),
+				'permission_callback' => array( $this, 'abilities_permission_check' ),
+				'meta'                => array(
+					'public'       => true,
+					'show_in_rest' => true,
+					'annotations'  => array(
+						'readonly'    => false,
+						'destructive' => true,
+						'idempotent'  => true,
+					),
+				),
+			)
+		);
+	}
+
+	/**
+	 * Ability callback: current block and bypass status.
+	 *
+	 * @return array Status payload matching the registered output schema.
+	 */
+	public function ability_get_status() {
+		$s    = $this->get_settings();
+		$calc = $this->compute_statuses_from_json( false );
+
+		return array(
+			'blocks_active'      => ( 'SÍ' === $calc['general'] ),
+			'domain_blocked'     => ( 'SÍ' === $calc['domain'] ),
+			'bypass_active'      => ! empty( $s['bypass_active'] ),
+			'domain'             => $this->get_site_domain(),
+			'domain_ips'         => array_values( (array) $calc['domain_ips'] ),
+			'blocked_domain_ips' => array_values( (array) $calc['blocked_domain_ips'] ),
+			'managed_records'    => count( (array) ( $s['selected_records'] ?? array() ) ),
+			'last_check'         => (string) ( $s['last_check'] ?? '' ),
+			'feed_last_update'   => (string) ( $calc['last_update'] ?? '' ),
+		);
+	}
+
+	/**
+	 * Ability callback: list the cached DNS records.
+	 *
+	 * @param array $input Optional 'type' and 'managed_only' filters.
+	 * @return array Records payload matching the registered output schema.
+	 */
+	public function ability_list_dns_records( $input = array() ) {
+		$s        = $this->get_settings();
+		$selected = (array) ( $s['selected_records'] ?? array() );
+		$filter   = isset( $input['type'] ) ? (string) $input['type'] : '';
+		$only     = ! empty( $input['managed_only'] );
+
+		$out = array();
+		foreach ( (array) ( $s['dns_records_cache'] ?? array() ) as $r ) {
+			$id      = $r['id'] ?? '';
+			$managed = in_array( $id, $selected, true );
+			if ( $filter && ( $r['type'] ?? '' ) !== $filter ) {
+				continue;
+			}
+			if ( $only && ! $managed ) {
+				continue;
+			}
+			$out[] = array(
+				'id'      => (string) $id,
+				'name'    => (string) ( $r['name'] ?? '' ),
+				'type'    => (string) ( $r['type'] ?? '' ),
+				'content' => (string) ( $r['content'] ?? '' ),
+				'proxied' => array_key_exists( 'proxied', $r ) ? $r['proxied'] : null,
+				'managed' => $managed,
+			);
+		}
+
+		return array(
+			'records' => $out,
+			'total'   => count( $out ),
+		);
+	}
+
+	/**
+	 * Ability callback: replace the managed record selection.
+	 *
+	 * @param array $input Payload with the 'record_ids' array.
+	 * @return array Result payload matching the registered output schema.
+	 */
+	public function ability_set_managed_records( $input = array() ) {
+		$s      = $this->get_settings();
+		$wanted = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', (array) ( $input['record_ids'] ?? array() ) ) ) ) );
+		$known  = array();
+		foreach ( (array) ( $s['dns_records_cache'] ?? array() ) as $r ) {
+			if ( ! empty( $r['id'] ) ) {
+				$known[] = $r['id'];
+			}
+		}
+		$valid   = empty( $known ) ? $wanted : array_values( array_intersect( $wanted, $known ) );
+		$ignored = array_values( array_diff( $wanted, $valid ) );
+
+		$s['selected_records'] = $valid;
+		$this->save_settings( $s );
+		$this->log_event(
+			'manual',
+			'Selección de registros DNS guardada (Abilities API)',
+			array(
+				'usuario'       => $this->current_user_label(),
+				'seleccionados' => count( $valid ),
+				'ignorados'     => count( $ignored ),
+			)
+		);
+
+		return array(
+			'managed_records' => count( $valid ),
+			'ignored_ids'     => $ignored,
+		);
+	}
+
+	/**
+	 * Ability callback: run the block check and apply the policy.
+	 *
+	 * @return array Result payload matching the registered output schema.
+	 */
+	public function ability_run_check() {
+		$this->check_football_and_manage_cloudflare();
+		$s = $this->get_settings();
+		$this->log_event(
+			'manual',
+			'Comprobación ejecutada (Abilities API)',
+			array(
+				'usuario' => $this->current_user_label(),
+				'general' => $s['last_status_general'] ?? 'NO',
+				'dominio' => $s['last_status_domain'] ?? 'NO',
+			)
+		);
+
+		return array(
+			'blocks_active'  => ( 'SÍ' === ( $s['last_status_general'] ?? 'NO' ) ),
+			'domain_blocked' => ( 'SÍ' === ( $s['last_status_domain'] ?? 'NO' ) ),
+			'bypass_active'  => ! empty( $s['bypass_active'] ),
+			'last_check'     => (string) ( $s['last_check'] ?? '' ),
+		);
+	}
+
+	/**
+	 * Ability callback: force the managed records to Proxied or DNS Only.
+	 *
+	 * @param array $input Payload with the 'mode' value ("on" or "off").
+	 * @return array|WP_Error Result payload, or WP_Error when nothing can be done.
+	 */
+	public function ability_set_proxy( $input = array() ) {
+		$mode    = isset( $input['mode'] ) ? (string) $input['mode'] : '';
+		$proxied = ( 'on' === $mode );
+
+		$s   = $this->get_settings();
+		$sel = (array) ( $s['selected_records'] ?? array() );
+		if ( empty( $sel ) ) {
+			return new WP_Error(
+				'cfbcolorvivo_no_records',
+				__( 'No DNS records are managed by the plugin. Set them first with the set-managed-records ability.', 'es-football-bypass-for-cloudflare' )
+			);
+		}
+		if ( empty( $s['cloudflare_zone_id'] ) || empty( $s['cloudflare_api_key'] ) ) {
+			return new WP_Error(
+				'cfbcolorvivo_not_configured',
+				__( 'Cloudflare credentials are not configured.', 'es-football-bypass-for-cloudflare' )
+			);
+		}
+
+		$log    = array();
+		$report = $this->apply_proxy_to_records( $sel, $proxied, $log );
+
+		$this->log_event(
+			'manual',
+			'Forzar Proxy ' . ( $proxied ? 'ON' : 'OFF' ) . ' (Abilities API)',
+			array(
+				'usuario'    => $this->current_user_label(),
+				'procesados' => count( $sel ),
+				'ok'         => $report['ok'],
+				'errores'    => $report['failed'],
+			)
+		);
+
+		return array(
+			'mode'      => $proxied ? 'on' : 'off',
+			'changed'   => $report['ok'],
+			'unchanged' => $report['skipped'],
+			'failed'    => $report['failed'],
+			'report'    => $report['lines'],
+		);
 	}
 
 	/* ================== AJAX ================== */
@@ -3925,6 +4361,63 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		);
 	}
 
+	/**
+	 * Apply a proxy state to a set of DNS records, refreshing the cache before and after.
+	 *
+	 * Shared by the "Force Proxy ON/OFF" AJAX actions and the Abilities API, so both
+	 * follow exactly the same path against Cloudflare.
+	 *
+	 * @param array $ids     Cloudflare DNS record IDs to update.
+	 * @param bool  $proxied True for Proxied (CDN), false for DNS Only.
+	 * @param array $log     Trace log, appended by reference.
+	 * @return array {
+	 *     @type int   $ok      Records actually changed.
+	 *     @type int   $skipped Records already in the requested state.
+	 *     @type int   $failed  Records that could not be updated.
+	 *     @type array $lines   Human-readable report, one line per record.
+	 * }
+	 */
+	private function apply_proxy_to_records( array $ids, $proxied, array &$log ) {
+		$state = $proxied ? 'ON' : 'OFF';
+
+		$before = $this->fetch_dns_records( array( 'A', 'AAAA', 'CNAME' ), $log );
+		if ( ! empty( $before ) ) {
+			$this->persist_dns_cache( $before );
+		}
+
+		$ok      = 0;
+		$failed  = 0;
+		$skipped = 0;
+		$lines   = array();
+		foreach ( $ids as $rid ) {
+			$res = $this->update_record_proxy_status( $rid, $proxied, true );
+			if ( is_array( $res ) && ! empty( $res['success'] ) ) {
+				if ( ! empty( $res['skipped'] ) ) {
+					++$skipped;
+					$lines[] = 'SKIP: ' . ( $res['record']['name'] ?? $rid ) . ' (ya ' . $state . ')';
+				} else {
+					++$ok;
+					$lines[] = 'OK: ' . ( $res['record']['name'] ?? $rid ) . ' -> ' . $state;
+				}
+			} else {
+				++$failed;
+				$lines[] = 'ERR: ' . ( $res['record']['name'] ?? $rid ) . ' ' . ( is_array( $res ) && ! empty( $res['error'] ) ? $res['error'] : '' );
+			}
+		}
+
+		$after = $this->fetch_dns_records( array( 'A', 'AAAA', 'CNAME' ), $log );
+		if ( ! empty( $after ) ) {
+			$this->persist_dns_cache( $after );
+		}
+
+		return array(
+			'ok'      => $ok,
+			'skipped' => $skipped,
+			'failed'  => $failed,
+			'lines'   => $lines,
+		);
+	}
+
 	/** AJAX handler: force proxy OFF (DNS Only) on selected records. */
 	public function ajax_force_deactivate() {
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -3949,30 +4442,10 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			);
 		}
 
-		$before = $this->fetch_dns_records( array( 'A', 'AAAA', 'CNAME' ), $log );
-		if ( ! empty( $before ) ) {
-			$this->persist_dns_cache( $before );
-		}
-		$ok    = 0;
-		$fail  = 0;
-		$lines = array();
-		foreach ( $sel as $rid ) {
-			$res = $this->update_record_proxy_status( $rid, false, true );
-			if ( is_array( $res ) && ! empty( $res['success'] ) ) {
-				if ( ! empty( $res['skipped'] ) ) {
-					$lines[] = 'SKIP: ' . ( $res['record']['name'] ?? $rid ) . ' (ya OFF)';
-				} else {
-					++$ok;
-					$lines[] = 'OK: ' . ( $res['record']['name'] ?? $rid ) . ' -> OFF'; }
-			} else {
-				++$fail;
-				$lines[] = 'ERR: ' . ( ( $res['record']['name'] ?? $rid ) ) . ' ' . ( is_array( $res ) && ! empty( $res['error'] ) ? $res['error'] : '' );
-			}
-		}
-		$after = $this->fetch_dns_records( array( 'A', 'AAAA', 'CNAME' ), $log );
-		if ( ! empty( $after ) ) {
-			$this->persist_dns_cache( $after );
-		}
+		$report = $this->apply_proxy_to_records( $sel, false, $log );
+		$ok     = $report['ok'];
+		$fail   = $report['failed'];
+		$lines  = $report['lines'];
 
 		$s2 = $this->get_settings();
 		ob_start();
@@ -4023,30 +4496,10 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			);
 		}
 
-		$before = $this->fetch_dns_records( array( 'A', 'AAAA', 'CNAME' ), $log );
-		if ( ! empty( $before ) ) {
-			$this->persist_dns_cache( $before );
-		}
-		$ok    = 0;
-		$fail  = 0;
-		$lines = array();
-		foreach ( $sel as $rid ) {
-			$res = $this->update_record_proxy_status( $rid, true, true );
-			if ( is_array( $res ) && ! empty( $res['success'] ) ) {
-				if ( ! empty( $res['skipped'] ) ) {
-					$lines[] = 'SKIP: ' . ( $res['record']['name'] ?? $rid ) . ' (ya ON)';
-				} else {
-					++$ok;
-					$lines[] = 'OK: ' . ( $res['record']['name'] ?? $rid ) . ' -> ON'; }
-			} else {
-				++$fail;
-				$lines[] = 'ERR: ' . ( ( $res['record']['name'] ?? $rid ) ) . ' ' . ( is_array( $res ) && ! empty( $res['error'] ) ? $res['error'] : '' );
-			}
-		}
-		$after = $this->fetch_dns_records( array( 'A', 'AAAA', 'CNAME' ), $log );
-		if ( ! empty( $after ) ) {
-			$this->persist_dns_cache( $after );
-		}
+		$report = $this->apply_proxy_to_records( $sel, true, $log );
+		$ok     = $report['ok'];
+		$fail   = $report['failed'];
+		$lines  = $report['lines'];
 
 		$s2 = $this->get_settings();
 		ob_start();
