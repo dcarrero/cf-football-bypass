@@ -235,6 +235,8 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * NEW: Filters `cfbcolorvivo_site_domain` and `cfbcolorvivo_is_local_domain`, so a staging copy, a reverse-proxied install or a WordPress Playground preview can unlock the Operation page and be checked against the production domain
 * FIX: The "Unsaved changes" warning was visible on page load before touching anything — the stylesheet was overriding the `hidden` attribute
 * FIX: PHP memory exhaustion while processing the status feed. The feed (about 5 MB, 50 MB once decoded) was decoded up to three times in a row and every copy was kept in memory until the end; a fourth decode on the Operation page only read a timestamp. It is now decoded once, so peak memory falls to roughly a third. Thanks to joserikko for the report
+* FIX: After an automatic check the cached DNS records kept the proxy state from before the change, so the Operation page and `list-dns-records` could report the opposite of what was live at Cloudflare until the next refresh
+* FIX: Uninstalling now removes the logs folder completely; a hidden `.htaccess` file was being left behind
 * COMPAT: Minimum WordPress version raised to 6.9, which is where the Abilities API landed. Sites on older versions stay on 1.9.8, which contains the DNS record selection fix
 * INTERNAL: The "Force Proxy ON/OFF" logic is now shared between the admin AJAX actions and the abilities, so both follow exactly the same path against Cloudflare
 

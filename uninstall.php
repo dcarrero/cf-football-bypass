@@ -62,6 +62,8 @@ foreach ( array( $cfbcolorvivo_plugin_dir . '/logs', $cfbcolorvivo_plugin_dir ) 
 				}
 			}
 		}
+		// glob() no lista los ficheros ocultos: sin esto el .htaccess impide borrar el directorio.
+		wp_delete_file( $cfbcolorvivo_dir . '/.htaccess' );
 		$wp_filesystem->rmdir( $cfbcolorvivo_dir );
 	}
 }
@@ -81,6 +83,8 @@ foreach ( $cfbcolorvivo_legacy_dirs as $cfbcolorvivo_dir ) {
 				}
 			}
 		}
+		// glob() no lista los ficheros ocultos: sin esto el .htaccess impide borrar el directorio.
+		wp_delete_file( $cfbcolorvivo_dir . '/.htaccess' );
 		$wp_filesystem->rmdir( $cfbcolorvivo_dir );
 	}
 }
