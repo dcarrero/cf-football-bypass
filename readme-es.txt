@@ -218,8 +218,9 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 
 == Screenshots ==
 
-1. Página de Configuración: selecciona el tipo de autenticación de Cloudflare (Global API Key, Token de usuario o Token de cuenta), introduce las credenciales, configura el intervalo de comprobación, el enfriamiento tras desactivar Cloudflare, el override "Forzar Proxy OFF durante fútbol", la retención de logs y el token de cron externo.
-2. Página de Operación: estado en vivo de los bloqueos según hayahora.futbol, registros DNS en caché con el estado Proxied actual de cada uno, controles manuales (guardar selección, recargar desde Cloudflare, forzar Proxy ON/OFF, comprobación manual, diagnóstico WP-Cron) y barra lateral con enlaces relacionados.
+1. Página de Configuración: modo de interfaz Simple o Avanzado, tipo de autenticación y credenciales de Cloudflare, IP de salida del servidor, comportamiento del bypass (intervalo de comprobación, enfriamiento, opción "Forzar Proxy OFF durante fútbol", mínimo de ISPs con bloqueo), avisos por email y opciones de desinstalación.
+2. Página de Operación: estado de los bloqueos según hayahora.futbol y los registros DNS que gestiona el plugin, con filtros por tipo, botones de selección rápida y el estado del proxy de cada registro, además de las acciones manuales (comprobar bloqueos, forzar Proxy OFF u ON).
+3. Página "¿Hay fútbol ahora?": respuesta rápida de sí o no sobre si hay bloqueos de IPs de La Liga activos, con la hora de la última actualización del feed y los ISPs afectados.
 
 == Changelog ==
 

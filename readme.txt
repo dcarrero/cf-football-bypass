@@ -218,8 +218,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 
 == Screenshots ==
 
-1. Settings page: select Cloudflare authentication type (Global API Key, User Token or Account Token), enter credentials, configure check interval, cooldown after disabling Cloudflare, the "Force Proxy OFF during football" override, log retention, and the external cron token.
-2. Operation page: live block status from hayahora.futbol, cached DNS records with current Proxied state per record, manual controls (save selection, reload from Cloudflare, force Proxy ON/OFF, manual check, WP-Cron diagnostics), and a sidebar with related links.
+1. Settings page: Simple or Advanced interface mode, Cloudflare authentication type and credentials, server outbound IP, bypass behaviour (check interval, cooldown, "Force Proxy OFF during football" override, minimum ISPs with blocks), email notifications and uninstall options.
+2. Operation page: live block status from hayahora.futbol and the DNS records the plugin manages, with type filters, quick selection buttons and the current proxy state per record, plus manual actions (check for blocks, force Proxy OFF or ON).
+3. "Is there football now?" page: a quick yes or no answer on whether La Liga IP blocks are active, with the time of the last feed update and the affected ISPs.
 
 == Changelog ==
 
