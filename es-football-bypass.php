@@ -3,7 +3,7 @@
  * Plugin Name: ES Football Bypass for Cloudflare
  * Plugin URI: https://github.com/dcarrero/cf-football-bypass
  * Description: Operates with Cloudflare to toggle between Proxy (ON/CDN) and DNS Only (OFF) based on IP blocks, with persistent DNS cache and AJAX actions. Separate UI: Operation and Settings.
- * Version: 2.0.0
+ * Version: 2.0.1
  * Author: David Carrero Fernandez-Baillo
  * Author URI: https://carrero.es
  * License: GPL v2 or later
@@ -25,6 +25,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Main plugin class for ES Football Bypass.
  */
 final class Cfbcolorvivo_Cloudflare_Football_Bypass {
+	/** Minimum length accepted when an administrator sets the external cron token by hand. */
+	const MIN_CRON_SECRET_LENGTH = 16;
+
 
 	/**
 	 * Option name for plugin settings.
@@ -958,7 +961,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		}
 
 		// Registrar script handle para asociar inline scripts.
-		wp_register_script( 'cfbcolorvivo-admin', false, array(), '2.0.0', true );
+		wp_register_script( 'cfbcolorvivo-admin', false, array(), '2.0.1', true );
 		wp_enqueue_script( 'cfbcolorvivo-admin' );
 
 		// Pasar datos al JavaScript.
@@ -973,7 +976,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		);
 
 		// Estilos de la interfaz de administración.
-		wp_register_style( 'cfbcolorvivo-admin', false, array(), '2.0.0' );
+		wp_register_style( 'cfbcolorvivo-admin', false, array(), '2.0.1' );
 		wp_enqueue_style( 'cfbcolorvivo-admin' );
 		wp_add_inline_style( 'cfbcolorvivo-admin', $this->get_admin_css() );
 
@@ -1499,7 +1502,15 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			$san['delete_data_on_uninstall'] = isset( $input['delete_data_on_uninstall'] ) ? (int) ! empty( $input['delete_data_on_uninstall'] ) : ( $existing['delete_data_on_uninstall'] ?? 1 );
 		}
 		$san['bypass_check_cooldown'] = isset( $input['bypass_check_cooldown'] ) ? intval( $input['bypass_check_cooldown'] ) : ( $existing['bypass_check_cooldown'] ?? 60 );
-		$san['cron_secret']           = isset( $input['cron_secret'] ) ? sanitize_text_field( $input['cron_secret'] ) : ( $existing['cron_secret'] ?? '' );
+
+		$existing_secret    = (string) ( $existing['cron_secret'] ?? '' );
+		$san['cron_secret'] = isset( $input['cron_secret'] ) ? sanitize_text_field( $input['cron_secret'] ) : $existing_secret;
+		// Vaciar el campo genera un token nuevo. Un valor corto solo se rechaza si cambia: los ya guardados siguen valiendo para no romper crons existentes.
+		$cron_secret_rejected = '' !== $san['cron_secret'] && $san['cron_secret'] !== $existing_secret && strlen( $san['cron_secret'] ) < self::MIN_CRON_SECRET_LENGTH;
+		if ( $cron_secret_rejected ) {
+			$san['cron_secret'] = $existing_secret;
+		}
+
 		// log_secret no es un campo del formulario: preservar el existente para no cambiar el nombre del fichero de log en cada guardado (normalize lo regenera si está vacío).
 		$san['log_secret']            = ( ! empty( $existing['log_secret'] ) && is_string( $existing['log_secret'] ) ) ? $existing['log_secret'] : '';
 		$san['bypass_active']         = isset( $input['bypass_active'] ) ? (int) ! empty( $input['bypass_active'] ) : ( $existing['bypass_active'] ?? 0 );
@@ -1529,6 +1540,10 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		if ( $is_settings_form ) {
 			$trace = array();
 			$ok    = $this->quick_settings_test( $san, $trace );
+			if ( $cron_secret_rejected ) {
+				/* translators: %d is the minimum number of characters. */
+				$trace[] = sprintf( __( 'The external cron token was not changed: it must have at least %d characters.', 'es-football-bypass-for-cloudflare' ), self::MIN_CRON_SECRET_LENGTH );
+			}
 			// Guardar último log para la consola de Configuración.
 			update_option(
 				'cfbcolorvivo_settings_last_trace',
@@ -3034,13 +3049,23 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			&& ( time() - (int) $last_fetch['time'] ) < $fetch_throttle );
 
 		if ( ! $skip_remote ) {
-			$url  = apply_filters( 'cfbcolorvivo_remote_data_json_url', 'https://hayahora.futbol/estado/data.json' );
-			$resp = wp_remote_get(
+			$url = apply_filters( 'cfbcolorvivo_remote_data_json_url', 'https://hayahora.futbol/estado/data.json' );
+			/**
+			 * Filters the largest feed size accepted, in bytes.
+			 *
+			 * A longer response is truncated, fails to decode and the local copy stays in use.
+			 *
+			 * @param int $max_bytes Maximum size in bytes.
+			 */
+			$max_bytes = (int) apply_filters( 'cfbcolorvivo_feed_max_bytes', 20 * MB_IN_BYTES );
+
+			$resp = wp_safe_remote_get(
 				$url,
 				array(
-					'timeout'     => 25,
-					'redirection' => 5,
-					'user-agent'  => 'ESFB/2.0.0; ' . home_url( '/' ),
+					'timeout'             => 25,
+					'redirection'         => 5,
+					'user-agent'          => 'ESFB/2.0.1; ' . home_url( '/' ),
+					'limit_response_size' => $max_bytes,
 				)
 			);
 			if ( is_wp_error( $resp ) ) {
@@ -3578,7 +3603,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		$site    = get_bloginfo( 'name' );
 		$home    = home_url( '/' );
 		$mgr_url = admin_url( 'admin.php?page=cfbcolorvivo-main' );
-		$version = '2.0.0';
+		$version = '2.0.1';
 
 		if ( $now_active ) {
 			/* translators: %s is the site name. */
@@ -3686,7 +3711,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 						),
 						'bypass_active'      => array(
 							'type'        => 'boolean',
-							'description' => __( 'The plugin currently has the managed records on DNS Only.', 'es-football-bypass-for-cloudflare' ),
+							'description' => __( 'The automatic policy has the bypass engaged. Forcing the proxy by hand does not change this value.', 'es-football-bypass-for-cloudflare' ),
 						),
 						'domain'             => array( 'type' => 'string' ),
 						'domain_ips'         => array(
@@ -3835,7 +3860,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			'es-football-bypass/set-proxy',
 			array(
 				'label'               => __( 'Force proxy on or off', 'es-football-bypass-for-cloudflare' ),
-				'description'         => __( 'Forces the managed DNS records to Proxied (CDN) or DNS Only, exactly like the manual buttons on the Operation page. Changes live DNS at Cloudflare.', 'es-football-bypass-for-cloudflare' ),
+				'description'         => __( 'Forces the managed DNS records to Proxied (CDN) or DNS Only, exactly like the manual buttons on the Operation page. Changes live DNS at Cloudflare. The next automatic check applies the policy again.', 'es-football-bypass-for-cloudflare' ),
 				'category'            => 'es-football-bypass',
 				'input_schema'        => array(
 					'type'       => 'object',

@@ -4,7 +4,7 @@ Tags: cloudflare, dns, football, bypass, ip-blocking
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.0.0
+Stable tag: 2.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -205,6 +205,8 @@ Runs the same check as the cron job: fetches the hayahora.futbol feed and applie
 = es-football-bypass/set-proxy =
 Forces the managed records to Proxied (CDN) or DNS Only. Input: `mode` (`on` or `off`). Annotated as destructive, since it changes live DNS at Cloudflare. Returns an error when no records are managed or Cloudflare credentials are missing.
 
+Forcing the proxy with `set-proxy` or the manual buttons is a one-off action: it does not change `bypass_active`, and the next check applies the automatic policy again. If blocks are active, a forced Proxy ON is switched back to DNS Only; if they are not, a forced Proxy OFF is switched back on.
+
 == Logs and Auditing ==
 
 = Where can I see the action history? =
@@ -223,6 +225,13 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 3. "Is there football now?" page: a quick yes or no answer on whether La Liga IP blocks are active, with the time of the last feed update and the affected ISPs.
 
 == Changelog ==
+
+= 2.0.1 =
+* HARDENING: The status feed is now downloaded with `wp_safe_remote_get()`, so internal addresses are rejected, and its size is capped at 20 MB (filter `cfbcolorvivo_feed_max_bytes`). A larger response is discarded and the local copy stays in use
+* HARDENING: A new external cron token set by hand must have at least 16 characters. Tokens already saved keep working
+* I18N: Abilities translated into Spanish, Catalan, Basque, French and Galician
+* DOCS: Forcing the proxy by hand does not change `bypass_active`, and the next check applies the policy again
+* INTERNAL: GitHub Actions pinned to exact commits
 
 = 2.0.0 =
 * NEW: Abilities API support (WordPress 6.9+). The plugin now registers five abilities under the "ES Football Bypass" category, so the REST API, MCP servers and AI agents can drive the bypass without going through the admin screens: `get-status`, `list-dns-records`, `set-managed-records`, `run-check` and `set-proxy`
@@ -381,6 +390,9 @@ You can check if it's scheduled in Tools > Site Health > Info > Scheduled Events
 * Integrated cron system
 
 == Upgrade Notice ==
+
+= 2.0.1 =
+Security hardening for the feed download and the external cron token, plus translated abilities. No configuration changes are needed.
 
 = 2.0.0 =
 Adds Abilities API support (WordPress 6.9+): five abilities let the REST API, MCP servers and AI agents read the block status and control the Cloudflare proxy. Minimum WordPress version is now 6.9.
