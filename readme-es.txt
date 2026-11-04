@@ -4,7 +4,7 @@ Tags: cloudflare, dns, futbol, bypass, bloqueo-ip
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.0.1
+Stable tag: 2.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -226,6 +226,10 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 
 == Changelog ==
 
+= 2.0.2 =
+* FIX: Activar el plugin ya no provoca un error fatal cuando hay otra copia activa en una carpeta distinta, como una instalación antigua desde GitHub. La segunda copia se detiene y muestra un aviso para desactivar la otra, y después toma el relevo
+* FIX: La comprobación programada se restaura si falta con el plugin activo
+
 = 2.0.1 =
 * REFUERZO: El feed de estado se descarga con `wp_safe_remote_get()`, de modo que se rechazan las direcciones internas, y su tamaño se limita a 20 MB (filtro `cfbcolorvivo_feed_max_bytes`). Una respuesta mayor se descarta y se sigue usando la copia local
 * REFUERZO: Un token nuevo de cron externo puesto a mano debe tener al menos 16 caracteres. Los tokens ya guardados siguen funcionando
@@ -390,6 +394,9 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 * Sistema de cron integrado
 
 == Upgrade Notice ==
+
+= 2.0.2 =
+Corrige el error fatal al activar cuando hay otra copia del plugin activa en una carpeta distinta. No hace falta cambiar la configuración.
 
 = 2.0.1 =
 Refuerzo de seguridad en la descarga del feed y el token de cron externo, además de las abilities traducidas. No hace falta cambiar la configuración.

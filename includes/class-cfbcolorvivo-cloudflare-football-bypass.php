@@ -1,0 +1,4715 @@
+<?php
+/**
+ * Main plugin class.
+ *
+ * @package ES_Football_Bypass
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Main plugin class for ES Football Bypass.
+ */
+final class Cfbcolorvivo_Cloudflare_Football_Bypass {
+	/** Minimum length accepted when an administrator sets the external cron token by hand. */
+	const MIN_CRON_SECRET_LENGTH = 16;
+
+
+	/**
+	 * Option name for plugin settings.
+	 *
+	 * @var string
+	 */
+	private $option_name  = 'cfbcolorvivo_settings';
+
+	/**
+	 * WP-Cron hook name.
+	 *
+	 * @var string
+	 */
+	private $cron_hook    = 'cfbcolorvivo_check_football_status';
+
+	/**
+	 * Freshness window in seconds (4 hours).
+	 *
+	 * @var int
+	 */
+	private $fresh_window = 240 * 60;
+
+	/**
+	 * Full path to the log file.
+	 *
+	 * @var string
+	 */
+	private $log_file_path;
+
+	/**
+	 * Directory path for log files.
+	 *
+	 * @var string
+	 */
+	private $log_dir_path;
+
+	/**
+	 * Base upload directory for plugin data files.
+	 *
+	 * @var string
+	 */
+	private $plugin_upload_dir;
+
+	/**
+	 * Whether to suppress cron rescheduling during saves.
+	 *
+	 * @var bool
+	 */
+	private $suspend_reschedule = false;
+
+	/**
+	 * Per-request cache of normalized settings.
+	 *
+	 * @var array|null
+	 */
+	private $settings_cache = null;
+
+	/** Initialize plugin hooks and paths. */
+	public function __construct() {
+		$upload_base              = wp_upload_dir()['basedir'];
+		$this->plugin_upload_dir  = $upload_base . '/es-football-bypass-for-cloudflare';
+		$this->log_dir_path       = $this->plugin_upload_dir . '/logs';
+		// El nombre real del fichero se resuelve de forma diferida en get_log_file_path()
+		// usando el secreto por sitio (log_secret), que no está disponible tan pronto.
+		$this->log_file_path      = '';
+
+		// Cargar traducciones: prioriza wp-content/languages/plugins/ (GlotPress/WP.org)
+		// y cae a /languages/ del plugin como fallback cuando se instala desde el zip.
+		add_action( 'init', array( $this, 'load_textdomain' ) );
+		add_action( 'updated_option', array( $this, 'handle_option_updated' ), 10, 3 );
+
+		add_action( 'admin_menu', array( $this, 'register_menus' ) );
+		add_action( 'admin_init', array( $this, 'settings_init' ) );
+		add_action( 'admin_init', array( $this, 'ensure_cron_scheduled' ) );
+		add_action( 'admin_notices', array( $this, 'settings_save_notices' ) );
+		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_scripts' ) );
+
+		add_action( $this->cron_hook, array( $this, 'check_football_and_manage_cloudflare' ) );
+		add_filter( 'cron_schedules', array( $this, 'add_custom_cron_interval' ) );
+
+		register_activation_hook( CFBCOLORVIVO_PLUGIN_FILE, array( $this, 'activate' ) );
+		register_deactivation_hook( CFBCOLORVIVO_PLUGIN_FILE, array( $this, 'deactivate' ) );
+
+		add_action( 'wp_ajax_cfbcolorvivo_save_selection', array( $this, 'ajax_save_selection' ) );
+		add_action( 'wp_ajax_cfbcolorvivo_test_connection', array( $this, 'ajax_test_connection' ) );
+		add_action( 'wp_ajax_cfbcolorvivo_manual_check', array( $this, 'ajax_manual_check' ) );
+		add_action( 'wp_ajax_cfbcolorvivo_get_status', array( $this, 'ajax_get_status' ) );
+		add_action( 'wp_ajax_cfbcolorvivo_force_activate', array( $this, 'ajax_force_activate' ) );
+		add_action( 'wp_ajax_cfbcolorvivo_force_deactivate', array( $this, 'ajax_force_deactivate' ) );
+		add_action( 'wp_ajax_cfbcolorvivo_cron_diagnostics', array( $this, 'ajax_cron_diagnostics' ) );
+		add_action( 'wp_ajax_cfbcolorvivo_clear_data_cache', array( $this, 'ajax_clear_data_cache' ) );
+		add_action( 'wp_ajax_cfbcolorvivo_feed_diagnostics', array( $this, 'ajax_feed_diagnostics' ) );
+		add_action( 'init', array( $this, 'maybe_process_external_cron' ) );
+
+		// Abilities API (WordPress 6.9+): permite a REST, MCP y agentes operar el bypass.
+		add_action( 'wp_abilities_api_categories_init', array( $this, 'register_ability_category' ) );
+		add_action( 'wp_abilities_api_init', array( $this, 'register_abilities' ) );
+	}
+
+	/* ================== Utilidades ================== */
+
+	/**
+	 * Load plugin translations.
+	 *
+	 * WordPress automatically loads translations published on translate.wordpress.org
+	 * for plugins hosted on WP.org, but only from wp-content/languages/plugins/.
+	 * Calling load_plugin_textdomain() makes WP also look inside the plugin's own
+	 * /languages/ directory, which is what ships bundled in our release zip for
+	 * users who install without network access to the translation hub.
+	 */
+	public function load_textdomain() {
+		load_plugin_textdomain(
+			'es-football-bypass-for-cloudflare',
+			false,
+			dirname( plugin_basename( CFBCOLORVIVO_PLUGIN_FILE ) ) . '/languages'
+		);
+	}
+
+	/**
+	 * Initialize and return the WP_Filesystem instance.
+	 *
+	 * @return WP_Filesystem_Base|false The filesystem instance or false on failure.
+	 */
+	private function get_wp_filesystem() {
+		global $wp_filesystem;
+		if ( empty( $wp_filesystem ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+			WP_Filesystem();
+		}
+		return $wp_filesystem;
+	}
+
+	/**
+	 * Convert a UTF-8 string to ASCII, transliterating special characters.
+	 *
+	 * @param string $s UTF-8 string to convert.
+	 * @return string ASCII-safe string.
+	 */
+	private function to_ascii( $s ) {
+		$t = $s;
+		if ( function_exists( 'iconv' ) ) {
+			$x = iconv( 'UTF-8', 'ASCII//TRANSLIT//IGNORE', $s );
+			if ( false !== $x && null !== $x ) {
+				$t = $x;
+			}
+		}
+		$map = array(
+			'¿' => '?',
+			'¡' => '!',
+			'…' => '...',
+			'—' => '-',
+			'–' => '-',
+			'•' => '*',
+			'á' => 'a',
+			'Á' => 'A',
+			'é' => 'e',
+			'É' => 'E',
+			'í' => 'i',
+			'Í' => 'I',
+			'ó' => 'o',
+			'Ó' => 'O',
+			'ú' => 'u',
+			'Ú' => 'U',
+			'ñ' => 'n',
+			'Ñ' => 'N',
+			'ü' => 'u',
+			'Ü' => 'U',
+		);
+		return strtr( $t, $map );
+	}
+	/**
+	 * Write a debug log entry when WP_DEBUG_LOG is enabled.
+	 *
+	 * @param mixed $msg Message or data to log.
+	 */
+	private function log( $msg ) {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
+			$out = is_scalar( $msg ) ? (string) $msg : wp_json_encode( $msg, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Intentional debug logging when WP_DEBUG_LOG is enabled
+			error_log( '[CFB] ' . $this->to_ascii( $out ) );
+		}
+	}
+	/**
+	 * Append a line to the trace bag and write to debug log.
+	 *
+	 * @param array|null $bag  Trace array to append to, or null.
+	 * @param string     $line Message line to trace.
+	 */
+	private function trace( &$bag, $line ) {
+		if ( is_array( $bag ) ) {
+			$bag[] = $line;  // consola bonita (UTF-8).
+		}
+		$this->log( $line );                   // log ASCII-safe.
+	}
+	/**
+	 * Mask a string, keeping only leading and trailing characters visible.
+	 *
+	 * @param string $str   String to mask.
+	 * @param int    $left  Characters to keep on left.
+	 * @param int    $right Characters to keep on right.
+	 * @return string Masked string.
+	 */
+	private function mask( $str, $left = 6, $right = 4 ) {
+		$s   = (string) $str;
+		$len = strlen( $s );
+		if ( $len <= $left + $right ) {
+			return str_repeat( '*', max( 0, $len ) );
+		}
+		return substr( $s, 0, $left ) . str_repeat( '*', $len - $left - $right ) . substr( $s, -$right );
+	}
+	/**
+	 * Anonymize an IP address for GDPR-compliant logging.
+	 *
+	 * @param string $ip IP address to anonymize.
+	 * @return string Anonymized IP address.
+	 */
+	private function anonymize_ip( $ip ) {
+		if ( empty( $ip ) || ! is_string( $ip ) ) {
+			return '';
+		}
+		if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ) {
+			$parts = explode( '.', $ip );
+			if ( count( $parts ) === 4 ) {
+				return $parts[0] . '.' . $parts[1] . '.xxx.xxx';
+			}
+		}
+		if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) {
+			$parts = explode( ':', $ip );
+			if ( count( $parts ) >= 4 ) {
+				return $parts[0] . ':' . $parts[1] . ':' . $parts[2] . ':xxxx:xxxx:xxxx:xxxx:xxxx';
+			}
+		}
+		return 'xxx.xxx.xxx.xxx';
+	}
+	/**
+	 * Check whether the given domain is a local/development environment.
+	 *
+	 * @param string|null $domain Domain to check, or null for current site.
+	 * @return bool True if the domain is local.
+	 */
+	private function is_local_domain( $domain = null ) {
+		if ( null === $domain ) {
+			$domain = $this->get_site_domain();
+		}
+		if ( empty( $domain ) ) {
+			return true;
+		}
+		if ( filter_var( $domain, FILTER_VALIDATE_IP ) ) {
+			return true;
+		}
+		$local    = array( 'localhost', 'localhost.localdomain' );
+		$is_local = in_array( strtolower( $domain ), $local, true )
+			|| (bool) preg_match( '/\.(local|test|ddev\.site|lndo\.site|wp\.lan)$/i', $domain );
+
+		/**
+		 * Filters whether the current domain is a local environment.
+		 *
+		 * Returning false unlocks the Operation page on a local or preview install,
+		 * which is what a staging copy or a WordPress Playground demo needs.
+		 *
+		 * @param bool   $is_local Whether the domain looks local.
+		 * @param string $domain   Domain being checked.
+		 */
+		return (bool) apply_filters( 'cfbcolorvivo_is_local_domain', $is_local, $domain );
+	}
+	/** Detect the outgoing IP addresses of this server (cached 1 hour). */
+	private function get_server_outgoing_ips() {
+		$cache_key = 'cfbcolorvivo_server_outgoing_ips';
+		$cached    = get_transient( $cache_key );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$services = array(
+			'https://api.ipify.org',
+			'https://checkip.amazonaws.com',
+			'https://icanhazip.com',
+		);
+		$ips      = array();
+		foreach ( $services as $url ) {
+			$r = wp_remote_get(
+				$url,
+				array(
+					'timeout'   => 10,
+					'sslverify' => true,
+				)
+			);
+			if ( ! is_wp_error( $r ) && wp_remote_retrieve_response_code( $r ) === 200 ) {
+				$ip = trim( wp_remote_retrieve_body( $r ) );
+				if ( filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+					$ips[] = $ip;
+				}
+			}
+		}
+		$ips = array_values( array_unique( $ips ) );
+		if ( ! empty( $ips ) ) {
+			set_transient( $cache_key, $ips, HOUR_IN_SECONDS );
+		}
+		return $ips;
+	}
+	/**
+	 * Check whether an array is associative (non-sequential keys).
+	 *
+	 * @param mixed $arr Value to check.
+	 * @return bool True if the array has non-sequential keys.
+	 */
+	private function is_assoc( $arr ) {
+		if ( ! is_array( $arr ) ) {
+			return false;
+		}
+		return array_keys( $arr ) !== range( 0, count( $arr ) - 1 );
+	}
+	/**
+	 * Normalize a bool-like value (string, int, bool) to true/false/null.
+	 *
+	 * @param mixed $v Value to normalize.
+	 * @return bool|null Normalized boolean, or null if unrecognized.
+	 */
+	private function normalize_bool_like( $v ) {
+		if ( is_bool( $v ) ) {
+			return $v;
+		}
+		if ( is_int( $v ) ) {
+			return 0 !== $v;
+		}
+		if ( is_string( $v ) ) {
+			$vv = strtolower( trim( $v ) );
+			if ( in_array( $vv, array( '1', 'true', 'yes', 'si', 'sí', 'on', 'blocked', 'proxy', 'cdn' ), true ) ) {
+				return true;
+			}
+			if ( in_array( $vv, array( '0', 'false', 'no', 'off', 'unblocked' ), true ) ) {
+				return false;
+			}
+		}
+		return null;
+	}
+	/**
+	 * Get an array value by key with case-insensitive lookup.
+	 *
+	 * @param array  $array Array to search in.
+	 * @param string $key   Key to look up.
+	 * @return mixed|null Value if found, or null.
+	 */
+	private function array_value_ci( $array, $key ) {
+		if ( ! is_array( $array ) ) {
+			return null;
+		}
+		if ( array_key_exists( $key, $array ) ) {
+			return $array[ $key ];
+		}
+		$lk = strtolower( $key );
+		foreach ( $array as $k => $v ) {
+			if ( is_string( $k ) && strtolower( $k ) === $lk ) {
+				return $v;
+			}
+		}
+		return null;
+	}
+	/** Generate a random secret token for external cron authentication. */
+	private function generate_cron_secret() {
+		if ( function_exists( 'wp_generate_password' ) ) {
+			return wp_generate_password( 32, false, false );
+		}
+		try {
+			return bin2hex( random_bytes( 16 ) );
+		} catch ( Exception $e ) {
+			return md5( uniqid( '', true ) );
+		}
+	}
+
+	/**
+	 * Return the default settings array, optionally generating a new cron token.
+	 *
+	 * @param bool $force_new_token Whether to generate a fresh cron secret.
+	 * @return array Default settings.
+	 */
+	private function get_default_settings( $force_new_token = false ) {
+		$secret = $force_new_token ? $this->generate_cron_secret() : '';
+		return array(
+			'cloudflare_email'         => '',
+			'cloudflare_api_key'       => '',
+			'cloudflare_zone_id'       => '',
+			'cloudflare_account_id'    => '',
+			'auth_type'                => 'global',
+			'check_interval'           => 15,
+			'selected_records'         => array(),
+			'dns_records_cache'        => array(),
+			'dns_cache_last_sync'      => '',
+			'last_check'               => '',
+			'last_status_general'      => 'NO',
+			'last_status_domain'       => 'NO',
+			'last_update'              => '',
+			'logging_enabled'          => 1,
+			'log_retention_days'       => 30,
+			'log_secret'               => '',  // Sufijo aleatorio del fichero de log; hace la URL impredecible (defensa en profundidad en nginx, donde .htaccess no aplica).
+			'cron_secret'              => $secret,
+			'bypass_active'            => 0,
+			'bypass_blocked_ips'       => array(),
+			'bypass_check_cooldown'    => 60,
+			'bypass_last_change'       => 0,
+			'force_proxy_off_override' => 0,  // NUEVO: Override para forzar OFF cuando General=SI.
+			'stale_threshold_hours'    => 6,  // Ignorar estados "bloqueado" cuyo último stateChange sea más antiguo que N horas.
+			'min_isps_blocked'         => 2,  // Número mínimo de ISPs distintos con IPs bloqueadas para activar general_blocked.
+			'email_notifications'      => 0,  // Enviar email al admin cuando el bypass cambia de estado automáticamente.
+			'notification_email'       => '',  // Destinatario alternativo para avisos; vacío = usar admin_email del sitio.
+			'ui_mode'                  => 'simple',  // 'simple' (por defecto para nuevas) o 'advanced'.
+			'delete_data_on_uninstall' => 1,  // Si 0, conservar opciones y logs al desinstalar para facilitar reinstalaciones.
+		);
+	}
+
+	/** Create the log directory with security files if it does not exist. */
+	private function ensure_log_directory() {
+		$dir = $this->log_dir_path;
+		if ( ! file_exists( $dir ) ) {
+			if ( ! wp_mkdir_p( $dir ) ) {
+				return false;
+			}
+		}
+		$wp_fs    = $this->get_wp_filesystem();
+		$htaccess = $dir . '/.htaccess';
+		if ( $wp_fs && ! $wp_fs->exists( $htaccess ) ) {
+			$htaccess_content = "# Deny access to log files\n<FilesMatch \"\\.(log|txt)$\">\n    Order Allow,Deny\n    Deny from all\n</FilesMatch>\n\n# Block directory listing\nOptions -Indexes\n";
+			$wp_fs->put_contents( $htaccess, $htaccess_content, FS_CHMOD_FILE );
+		}
+		$index = $dir . '/index.php';
+		if ( $wp_fs && ! $wp_fs->exists( $index ) ) {
+			$wp_fs->put_contents( $index, '<?php // Silence is golden', FS_CHMOD_FILE );
+		}
+		// Migrar el log heredado con nombre predecible al nombre con secreto (una sola vez).
+		$legacy = $this->get_legacy_log_file_path();
+		$target = $this->get_log_file_path();
+		if ( $wp_fs && $target !== $legacy && $wp_fs->exists( $legacy ) && ! $wp_fs->exists( $target ) ) {
+			$wp_fs->move( $legacy, $target, true );
+		}
+		return is_dir( $dir ) && wp_is_writable( $dir );
+	}
+	/**
+	 * Reschedule cron when the check interval option changes.
+	 *
+	 * @param string $option Option name that was updated.
+	 * @param mixed  $old    Old option value.
+	 * @param mixed  $new    New option value.
+	 */
+	public function handle_option_updated( $option, $old, $new ) {
+		if ( $option !== $this->option_name ) {
+			return;
+		}
+		$this->settings_cache = null;
+		if ( $this->suspend_reschedule ) {
+			return;
+		}
+		$old_interval = isset( $old['check_interval'] ) ? intval( $old['check_interval'] ) : null;
+		$new_interval = isset( $new['check_interval'] ) ? intval( $new['check_interval'] ) : null;
+		if ( $old_interval === $new_interval && wp_next_scheduled( $this->cron_hook ) ) {
+			return;
+		}
+		$this->reschedule_cron_after_interval_change();
+	}
+	/**
+	 * Save settings without triggering cron reschedule.
+	 *
+	 * @param array $settings Settings array to save.
+	 * @return bool True if the option was updated.
+	 */
+	private function save_settings( array $settings ) {
+		$this->suspend_reschedule = true;
+		$result                   = update_option( $this->option_name, $settings );
+		$this->suspend_reschedule = false;
+		$this->settings_cache     = null;
+		return $result;
+	}
+	/**
+	 * Check whether a domain belongs to the given Cloudflare zone.
+	 *
+	 * @param string $domain Domain name to check.
+	 * @param string $zone   Cloudflare zone name.
+	 * @return bool True if the domain matches the zone.
+	 */
+	private function domain_matches_zone( $domain, $zone ) {
+		$domain = strtolower( trim( (string) $domain ) );
+		$zone   = strtolower( trim( (string) $zone ) );
+		if ( '' === $domain || '' === $zone ) {
+			return false;
+		}
+		if ( $domain === $zone ) {
+			return true;
+		}
+		return substr( $domain, -strlen( '.' . $zone ) ) === '.' . $zone;
+	}
+	/** Return a label identifying the current WordPress user. */
+	private function current_user_label() {
+		if ( ! function_exists( 'wp_get_current_user' ) ) {
+			return 'desconocido';
+		}
+		$user = wp_get_current_user();
+		if ( $user && $user->exists() ) {
+			return $user->user_login . ' (#' . $user->ID . ')';
+		}
+		return 'desconocido';
+	}
+	/**
+	 * Return the full path to the action log file.
+	 *
+	 * The filename embeds a per-site random secret so the URL is not guessable
+	 * on servers where the directory .htaccess is ignored (nginx, LiteSpeed).
+	 * Resolved lazily and cached because the secret lives in settings.
+	 */
+	private function get_log_file_path() {
+		if ( ! empty( $this->log_file_path ) ) {
+			return $this->log_file_path;
+		}
+		$s      = $this->get_settings();
+		$secret = ( ! empty( $s['log_secret'] ) && is_string( $s['log_secret'] ) ) ? $s['log_secret'] : '';
+		$name   = $secret ? 'cfbcolorvivo-actions-' . $secret . '.log' : 'cfbcolorvivo-actions.log';
+
+		$this->log_file_path = $this->log_dir_path . '/' . $name;
+		return $this->log_file_path;
+	}
+
+	/** Return the legacy (pre-1.9.7) predictable log file path, for migration. */
+	private function get_legacy_log_file_path() {
+		return $this->log_dir_path . '/cfbcolorvivo-actions.log';
+	}
+	/**
+	 * Append a structured event to the action log file.
+	 *
+	 * @param string $type    Event type identifier.
+	 * @param string $message Human-readable event message.
+	 * @param array  $context Optional additional context data.
+	 */
+	private function log_event( $type, $message, array $context = array() ) {
+		$settings = $this->get_settings();
+		if ( empty( $settings['logging_enabled'] ) ) {
+			return;
+		}
+
+		if ( ! $this->ensure_log_directory() ) {
+			$this->log( 'No se puede crear/acceder al directorio de logs' );
+			return;
+		}
+
+		$path  = $this->get_log_file_path();
+		$entry = array(
+			'time'    => current_time( 'mysql' ),
+			'type'    => (string) $type,
+			'message' => $message,
+		);
+		if ( ! empty( $context ) ) {
+			$entry['context'] = $context;
+		}
+		$line = wp_json_encode( $entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		if ( false === $line ) {
+			return;
+		}
+		$line .= "\n";
+
+		$wp_fs = $this->get_wp_filesystem();
+		if ( ! $wp_fs ) {
+			return;
+		}
+		$existing = $wp_fs->exists( $path ) ? $wp_fs->get_contents( $path ) : '';
+		$written  = $wp_fs->put_contents( $path, $existing . $line, FS_CHMOD_FILE );
+		if ( false === $written ) {
+			return;
+		}
+		$days = isset( $settings['log_retention_days'] ) ? intval( $settings['log_retention_days'] ) : 30;
+		if ( false === get_transient( 'cfbcolorvivo_prune_throttle' ) ) {
+			$this->prune_logs( $days );
+			set_transient( 'cfbcolorvivo_prune_throttle', 1, DAY_IN_SECONDS );
+		}
+	}
+	/**
+	 * Remove log entries older than the specified number of days.
+	 *
+	 * @param int $days Number of days to retain.
+	 */
+	private function prune_logs( $days ) {
+		$days = max( 1, intval( $days ) );
+		$path = $this->get_log_file_path();
+		if ( ! file_exists( $path ) || ! is_readable( $path ) ) {
+			return;
+		}
+		$lines = file( $path, FILE_IGNORE_NEW_LINES );
+		if ( ! is_array( $lines ) ) {
+			return;
+		}
+		$cutoff   = time() - ( $days * DAY_IN_SECONDS );
+		$filtered = array();
+		foreach ( $lines as $line ) {
+			if ( '' === $line ) {
+				continue;
+			}
+			$keep  = true;
+			$entry = json_decode( $line, true );
+			if ( is_array( $entry ) && ! empty( $entry['time'] ) ) {
+				$ts = strtotime( $entry['time'] );
+				if ( $ts && $ts < $cutoff ) {
+					$keep = false;
+				}
+			}
+			if ( $keep ) {
+				$filtered[] = $line;
+			}
+		}
+		if ( count( $filtered ) === count( $lines ) ) {
+			return;
+		}
+		$data  = $filtered ? implode( "\n", $filtered ) . "\n" : '';
+		$wp_fs = $this->get_wp_filesystem();
+		if ( $wp_fs && $wp_fs->is_writable( $path ) ) {
+			$wp_fs->put_contents( $path, $data, FS_CHMOD_FILE );
+		}
+	}
+	/**
+	 * Read and return log entries sorted by date, most recent first.
+	 *
+	 * @param int $limit Maximum number of entries to return.
+	 * @return array Log entry arrays.
+	 */
+	private function read_log_entries( $limit = 200 ) {
+		$path = $this->get_log_file_path();
+		if ( ! file_exists( $path ) || ! is_readable( $path ) ) {
+			return array();
+		}
+		$lines = file( $path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES );
+		if ( ! is_array( $lines ) ) {
+			return array();
+		}
+		$entries = array();
+		foreach ( $lines as $line ) {
+			$entry = json_decode( $line, true );
+			if ( ! is_array( $entry ) ) {
+				$entry = array(
+					'time'    => '',
+					'type'    => 'info',
+					'message' => $line,
+				);
+			}
+			$entries[] = $entry;
+		}
+		usort(
+			$entries,
+			function ( $a, $b ) {
+				$ta = isset( $a['time'] ) ? strtotime( (string) $a['time'] ) : 0;
+				$tb = isset( $b['time'] ) ? strtotime( (string) $b['time'] ) : 0;
+				if ( $ta === $tb ) {
+					return 0;
+				}
+				return ( $ta > $tb ) ? -1 : 1;
+			}
+		);
+		if ( $limit > 0 && count( $entries ) > $limit ) {
+			$entries = array_slice( $entries, 0, $limit );
+		}
+		return $entries;
+	}
+
+	/** Process an external cron request if the token parameter is present. */
+	public function maybe_process_external_cron() {
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- External cron uses token-based authentication instead of nonce
+		if ( ! isset( $_GET['cfbcolorvivo_cron'] ) ) {
+			return;
+		}
+		$s = $this->get_settings();
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Token authentication for external cron
+		$token = isset( $_GET['token'] ) ? sanitize_text_field( wp_unslash( $_GET['token'] ) ) : '';
+		if ( empty( $s['cron_secret'] ) || ! hash_equals( $s['cron_secret'], $token ) ) {
+			wp_die(
+				esc_html__( 'Invalid token', 'es-football-bypass-for-cloudflare' ),
+				esc_html__( 'Access denied', 'es-football-bypass-for-cloudflare' ),
+				array( 'response' => 403 )
+			);
+		}
+		$remote_addr = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		$this->log_event( 'external_cron', 'Cron externo disparado', array( 'ip' => $this->anonymize_ip( $remote_addr ) ) );
+		$this->check_football_and_manage_cloudflare();
+		wp_die( 'CFB cron OK', '', array( 'response' => 200 ) );
+	}
+
+	/* ================== Normalización / Migración ================== */
+
+	/**
+	 * Normalize the DNS records cache array structure.
+	 *
+	 * @param mixed $cache_in Raw DNS cache data to normalize.
+	 * @return array Normalized DNS record arrays.
+	 */
+	private function normalize_dns_cache( $cache_in ) {
+		$out = array();
+		if ( is_array( $cache_in ) && $this->is_assoc( $cache_in ) ) {
+			$cache_in = array_values( $cache_in );
+		}
+		if ( ! is_array( $cache_in ) ) {
+			return $out;
+		}
+		foreach ( $cache_in as $r ) {
+			if ( ! is_array( $r ) ) {
+				continue;
+			}
+			$id   = isset( $r['id'] ) ? (string) $r['id'] : '';
+			$name = isset( $r['name'] ) ? (string) $r['name'] : '';
+			$type = isset( $r['type'] ) ? strtoupper( (string) $r['type'] ) : '';
+			$cont = isset( $r['content'] ) ? (string) $r['content'] : '';
+			$prox = null;
+			if ( array_key_exists( 'proxied', $r ) ) {
+				$prox = $this->normalize_bool_like( $r['proxied'] );
+			} elseif ( array_key_exists( 'proxy', $r ) ) {
+				$prox = $this->normalize_bool_like( $r['proxy'] );
+			} elseif ( array_key_exists( 'cdn', $r ) ) {
+				$prox = $this->normalize_bool_like( $r['cdn'] );
+			}
+			$ttl = isset( $r['ttl'] ) ? intval( $r['ttl'] ) : 1;
+			if ( $ttl <= 0 ) {
+				$ttl = 1;
+			}
+			if ( $id && $name && $type && $cont ) {
+				$out[] = array(
+					'id'      => $id,
+					'name'    => $name,
+					'type'    => $type,
+					'content' => $cont,
+					'proxied' => $prox,
+					'ttl'     => $ttl,
+				);
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Normalize and migrate plugin settings, filling missing defaults.
+	 *
+	 * @param mixed $opt_in Raw settings from the database.
+	 * @return array Tuple of (normalized settings, bool changed).
+	 */
+	private function normalize_settings( $opt_in ) {
+		$changed  = false;
+		$opt      = is_array( $opt_in ) ? $opt_in : array();
+		$defaults = $this->get_default_settings();
+		foreach ( $defaults as $k => $v ) {
+			if ( ! array_key_exists( $k, $opt ) ) {
+				$opt[ $k ] = $v;
+				$changed   = true; }
+		}
+
+		$auth = in_array( $opt['auth_type'], array( 'global', 'token', 'account_token' ), true ) ? $opt['auth_type'] : 'global';
+		if ( $auth !== $opt['auth_type'] ) {
+			$opt['auth_type'] = 'global';
+			$changed          = true; }
+
+		$mins = max( 5, min( 60, intval( $opt['check_interval'] ) ) );
+		if ( intval( $opt['check_interval'] ) !== $mins ) {
+			$opt['check_interval'] = $mins;
+			$changed               = true; }
+
+		if ( is_string( $opt['selected_records'] ) ) {
+			$opt['selected_records'] = array_filter( array_map( 'trim', explode( ',', $opt['selected_records'] ) ) );
+			$changed                 = true; }
+		if ( ! is_array( $opt['selected_records'] ) ) {
+			$opt['selected_records'] = array();
+			$changed                 = true; }
+		$sel_norm = array();
+		foreach ( $opt['selected_records'] as $rid ) {
+			if ( is_scalar( $rid ) && '' !== $rid ) {
+				$sel_norm[] = (string) $rid;
+			}
+		}
+		if ( $sel_norm !== $opt['selected_records'] ) {
+			$opt['selected_records'] = $sel_norm;
+			$changed                 = true; }
+
+		$norm_cache = $this->normalize_dns_cache( $opt['dns_records_cache'] );
+		if ( $norm_cache !== $opt['dns_records_cache'] ) {
+			$opt['dns_records_cache'] = $norm_cache;
+			$changed                  = true; }
+
+		foreach ( array( 'last_status_general', 'last_status_domain' ) as $k ) {
+			$v = strtoupper( (string) $opt[ $k ] );
+			if ( in_array( $v, array( 'SÍ', 'SI' ), true ) ) {
+				$v = 'SI';
+			} if ( ! in_array( $v, array( 'SI', 'NO' ), true ) ) {
+				$v = 'NO';
+			}
+			if ( $v !== $opt[ $k ] ) {
+				$opt[ $k ] = $v;
+				$changed   = true; }
+		}
+
+		$opt['logging_enabled'] = ! empty( $opt['logging_enabled'] ) ? 1 : 0;
+		$days                   = isset( $opt['log_retention_days'] ) ? intval( $opt['log_retention_days'] ) : 30;
+		if ( $days < 1 ) {
+			$days = 1;
+		}
+		if ( intval( $opt['log_retention_days'] ) !== $days ) {
+			$opt['log_retention_days'] = $days;
+			$changed                   = true; }
+		if ( empty( $opt['cron_secret'] ) || ! is_string( $opt['cron_secret'] ) ) {
+			$opt['cron_secret'] = $this->generate_cron_secret();
+			$changed            = true;
+		}
+		if ( empty( $opt['log_secret'] ) || ! is_string( $opt['log_secret'] ) ) {
+			$opt['log_secret'] = $this->generate_cron_secret();
+			$changed           = true;
+		}
+		$cooldown = isset( $opt['bypass_check_cooldown'] ) ? intval( $opt['bypass_check_cooldown'] ) : 60;
+		if ( $cooldown < 5 ) {
+			$cooldown = 5;
+		}
+		if ( $cooldown > 1440 ) {
+			$cooldown = 1440;
+		}
+		if ( ! isset( $opt['bypass_check_cooldown'] ) || intval( $opt['bypass_check_cooldown'] ) !== $cooldown ) {
+			$opt['bypass_check_cooldown'] = $cooldown;
+			$changed                      = true;
+		}
+		$opt['bypass_active'] = ! empty( $opt['bypass_active'] ) ? 1 : 0;
+		if ( ! isset( $opt['bypass_blocked_ips'] ) || ! is_array( $opt['bypass_blocked_ips'] ) ) {
+			$opt['bypass_blocked_ips'] = array();
+			$changed                   = true;
+		} else {
+			$normalized_ips = array();
+			foreach ( $opt['bypass_blocked_ips'] as $ip ) {
+				if ( is_string( $ip ) && '' !== $ip ) {
+					$normalized_ips[] = $ip;
+				}
+			}
+			if ( $normalized_ips !== $opt['bypass_blocked_ips'] ) {
+				$opt['bypass_blocked_ips'] = $normalized_ips;
+				$changed                   = true;
+			}
+		}
+		$opt['bypass_last_change'] = isset( $opt['bypass_last_change'] ) ? intval( $opt['bypass_last_change'] ) : 0;
+
+		// MODIFICACIÓN: Normalizar force_proxy_off_override.
+		$opt['force_proxy_off_override'] = ! empty( $opt['force_proxy_off_override'] ) ? 1 : 0;
+
+		$opt['email_notifications']      = ! empty( $opt['email_notifications'] ) ? 1 : 0;
+		$opt['notification_email']       = isset( $opt['notification_email'] ) ? sanitize_text_field( $opt['notification_email'] ) : '';
+		$opt['ui_mode']                  = isset( $opt['ui_mode'] ) && in_array( $opt['ui_mode'], array( 'simple', 'advanced' ), true ) ? $opt['ui_mode'] : 'simple';
+		$opt['delete_data_on_uninstall'] = isset( $opt['delete_data_on_uninstall'] ) ? ( ! empty( $opt['delete_data_on_uninstall'] ) ? 1 : 0 ) : 1;
+
+		return array( $opt, $changed );
+	}
+	/** Retrieve and normalize plugin settings from the database. */
+	private function get_settings() {
+		if ( null !== $this->settings_cache ) {
+			return $this->settings_cache;
+		}
+		$raw                 = get_option( $this->option_name, array() );
+		list($opt, $changed) = $this->normalize_settings( $raw );
+		if ( $changed ) {
+			$this->save_settings( $opt );
+			$this->log( 'Configuracion normalizada/migrada.' ); }
+		$this->settings_cache = $opt;
+		return $opt;
+	}
+
+	/* ================== Activación / Desactivación ================== */
+
+	/** Schedule cron on plugin activation. */
+	public function activate() {
+		// Preservar UX en upgrades: si había settings previos sin ui_mode, forzar 'advanced'
+		// antes de que normalize aplique el default 'simple' (que es solo para nuevas instalaciones).
+		$raw = get_option( $this->option_name, null );
+		if ( is_array( $raw ) && ! empty( $raw ) && ! isset( $raw['ui_mode'] ) ) {
+			$raw['ui_mode'] = 'advanced';
+			update_option( $this->option_name, $raw );
+			$this->settings_cache = null;
+		}
+		$s = $this->get_settings();
+		if ( empty( $s['check_interval'] ) ) {
+			$s['check_interval'] = 15;
+			$this->save_settings( $s ); }
+		if ( ! wp_next_scheduled( $this->cron_hook ) ) {
+			$interval = max( 5, min( 60, intval( $s['check_interval'] ) ) );
+			$next     = wp_next_scheduled( $this->cron_hook );
+			while ( $next ) {
+				wp_unschedule_event( $next, $this->cron_hook );
+				$next = wp_next_scheduled( $this->cron_hook ); }
+			wp_schedule_event( time() + 60, 'cf_fb_custom', $this->cron_hook );
+		}
+	}
+	/**
+	 * Restore the cron event when it is missing.
+	 *
+	 * A copy that took over from a duplicate never ran activate(), and the other copy
+	 * clears the event when it is deactivated.
+	 */
+	public function ensure_cron_scheduled() {
+		if ( ! wp_next_scheduled( $this->cron_hook ) ) {
+			wp_schedule_event( time() + 60, 'cf_fb_custom', $this->cron_hook );
+		}
+	}
+	/** Unschedule cron and restore proxy on plugin deactivation. */
+	public function deactivate() {
+		$timestamp = wp_next_scheduled( $this->cron_hook );
+		if ( $timestamp ) {
+			wp_unschedule_event( $timestamp, $this->cron_hook );
+		}
+
+		$opt = $this->get_settings();
+		if ( ! empty( $opt['selected_records'] ) ) {
+			foreach ( $opt['selected_records'] as $rid ) {
+				$this->update_record_proxy_status( $rid, true ); }
+			$this->log( 'Desactivado: Proxy restaurado (ON) en registros seleccionados.' );
+		}
+	}
+
+	/* ================== Menús (Operación y Configuración) ================== */
+
+	/** Register admin menu and submenu pages. */
+	public function register_menus() {
+		add_menu_page(
+			'ES Football Bypass',
+			'ES Football Bypass',
+			'manage_options',
+			'cfbcolorvivo-main',
+			array( $this, 'render_main_page' ),
+			'dashicons-shield',
+			66
+		);
+		add_submenu_page( 'cfbcolorvivo-main', 'Operacion', 'Operación', 'manage_options', 'cfbcolorvivo-main', array( $this, 'render_main_page' ) );
+		add_submenu_page( 'cfbcolorvivo-main', 'Hay Futbol Ahora', __( 'Is there football now?', 'es-football-bypass-for-cloudflare' ), 'manage_options', 'cfbcolorvivo-now', array( $this, 'render_now_page' ) );
+		add_submenu_page( 'cfbcolorvivo-main', 'Configuracion', 'Configuración', 'manage_options', 'cfbcolorvivo-settings', array( $this, 'render_settings_page' ) );
+		// Ocultar pestaña de logs en modo simple (los logs siguen escribiéndose; se puede reactivar cambiando a modo avanzado).
+		$s = $this->get_settings();
+		if ( ( $s['ui_mode'] ?? 'simple' ) !== 'simple' ) {
+			add_submenu_page( 'cfbcolorvivo-main', 'Registros', 'Logs', 'manage_options', 'cfbcolorvivo-logs', array( $this, 'render_logs_page' ) );
+		}
+	}
+
+	/* ================== Admin Scripts ================== */
+
+	/**
+	 * Enqueue admin scripts and localized data for plugin pages.
+	 *
+	 * @param string $hook Current admin page hook suffix.
+	 */
+	public function enqueue_admin_scripts( $hook ) {
+		// Solo cargar en las páginas del plugin.
+		if ( strpos( $hook, 'cfbcolorvivo-' ) === false && strpos( $hook, 'es-football-bypass-for-cloudflare' ) === false ) {
+			return;
+		}
+
+		// Registrar script handle para asociar inline scripts.
+		wp_register_script( 'cfbcolorvivo-admin', false, array(), '2.0.2', true );
+		wp_enqueue_script( 'cfbcolorvivo-admin' );
+
+		// Pasar datos al JavaScript.
+		wp_localize_script(
+			'cfbcolorvivo-admin',
+			'cfbcolorvivoData',
+			array(
+				'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
+				'optionName' => $this->option_name,
+				'nonce'      => wp_create_nonce( 'cfbcolorvivo_nonce' ),
+			)
+		);
+
+		// Estilos de la interfaz de administración.
+		wp_register_style( 'cfbcolorvivo-admin', false, array(), '2.0.2' );
+		wp_enqueue_style( 'cfbcolorvivo-admin' );
+		wp_add_inline_style( 'cfbcolorvivo-admin', $this->get_admin_css() );
+
+		// Página de operación principal.
+		if ( strpos( $hook, 'cfbcolorvivo-main' ) !== false ) {
+			wp_add_inline_script( 'cfbcolorvivo-admin', $this->get_main_page_js() );
+		}
+
+		// Página de configuración.
+		if ( strpos( $hook, 'cfbcolorvivo-settings' ) !== false ) {
+			wp_add_inline_script( 'cfbcolorvivo-admin', $this->get_settings_page_js() );
+			wp_add_inline_script( 'cfbcolorvivo-admin', $this->get_auth_type_js() );
+		}
+	}
+
+	/** Return the inline CSS for the plugin admin pages. */
+	private function get_admin_css() {
+		return '
+		.cfbcolorvivo-tabletools{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;margin:0 0 8px}
+		.cfbcolorvivo-toolgroup{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+		.cfbcolorvivo-toollabel{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#646970}
+		.cfbcolorvivo-filter.is-active{background:#2271b1;border-color:#2271b1;color:#fff}
+		.cfbcolorvivo-filter.is-active:hover{background:#135e96;border-color:#135e96;color:#fff}
+		.cfbcolorvivo-filter.is-active .cfbcolorvivo-badge{background:rgba(255,255,255,.28);color:#fff}
+		.cfbcolorvivo-badge{display:inline-block;min-width:14px;padding:0 5px;border-radius:9px;background:#f0f0f1;color:#50575e;font-size:11px;line-height:17px;text-align:center}
+		.cfbcolorvivo-dns-table tr.is-selected td{background:#f0f6fc}
+		.cfbcolorvivo-dns-table .check-column{width:2.2em;vertical-align:middle;text-align:center}
+		.cfbcolorvivo-dns-table td label{cursor:pointer}
+		.cfbcolorvivo-content{font-family:Menlo,Consolas,monospace;font-size:12px;word-break:break-all}
+		.cfbcolorvivo-pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}
+		.cfbcolorvivo-pill.is-on{background:#e6f3e6;color:#1d6b2b}
+		.cfbcolorvivo-pill.is-off{background:#fcf0e4;color:#8a4b00}
+		.cfbcolorvivo-pill.is-na{background:#f0f0f1;color:#787c82}
+		.cfbcolorvivo-tag{display:inline-block;padding:0 6px;border-radius:9px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;vertical-align:middle}
+		.cfbcolorvivo-tag.is-site{background:#2271b1;color:#fff}
+		.cfbcolorvivo-tag.is-muted{background:#f0f0f1;color:#787c82}
+		.cfbcolorvivo-count{margin:8px 0 0;color:#50575e}
+		.cfbcolorvivo-count #cfbcolorvivo-sel-count{font-weight:700;color:#1d2327}
+		.cfbcolorvivo-dirty{display:inline-block;margin-left:8px;padding:2px 8px;background:#fcf9e8;border-left:3px solid #dba617;color:#674d00}
+		.cfbcolorvivo-dirty[hidden]{display:none}
+		.cfbcolorvivo-actions{margin:12px 0 0}
+		.cfbcolorvivo-actionrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+		.cfbcolorvivo-hint{flex:1 1 100%;margin:2px 0 0;font-size:12px;color:#646970}
+		.button.cfbcolorvivo-danger{color:#b32d2e;border-color:#b32d2e}
+		.button.cfbcolorvivo-danger:hover,.button.cfbcolorvivo-danger:focus{background:#b32d2e;border-color:#b32d2e;color:#fff}
+		.cfbcolorvivo-pulse{box-shadow:0 0 0 3px rgba(219,166,23,.45)}
+		@media screen and (max-width:960px){
+			.cfbcolorvivo-flex{flex-direction:column}
+			.cfbcolorvivo-aside{width:100% !important}
+		}
+		';
+	}
+
+	/** Return the inline JavaScript for the main operation page. */
+	private function get_main_page_js() {
+		return "(function(){
+            var ajaxURL = cfbcolorvivoData.ajaxUrl;
+            var optName = cfbcolorvivoData.optionName;
+            var nonce   = cfbcolorvivoData.nonce || '';
+            var consolePre = document.getElementById('cfbcolorvivo-console-pre');
+            var consoleSimple = document.getElementById('cfbcolorvivo-console-simple');
+            var warn = document.getElementById('cfbcolorvivo-warn');
+            var listWrap = document.getElementById('cfbcolorvivo-dns-list');
+            var boxSelector = 'input[type=\"checkbox\"][name=\"'+optName+'[selected_records][]\"]';
+            var dirty = false;
+            var currentFilter = 'all';
+
+            function println(msg){
+                if (consolePre) { var ts=new Date().toLocaleTimeString(); consolePre.textContent += '['+ts+'] '+msg+'\\n'; }
+                // En modo simple la consola tecnica esta oculta: mostramos siempre el ultimo mensaje.
+                if (consoleSimple) consoleSimple.textContent = msg;
+            }
+            function clearConsole(){
+                if (consolePre) consolePre.textContent='';
+                if (consoleSimple) consoleSimple.textContent='';
+            }
+            function showWait(show){ if (warn) warn.style.display = show ? '' : 'none'; }
+
+            function boxes(){
+                if (!listWrap) return [];
+                return Array.prototype.slice.call(listWrap.querySelectorAll(boxSelector));
+            }
+            function selection(){
+                return boxes().filter(function(cb){ return cb.checked; }).map(function(cb){ return cb.value; });
+            }
+            function rowVisible(cb){
+                var tr = cb.closest('tr');
+                return !!tr && tr.style.display !== 'none';
+            }
+            function setDirty(v){
+                dirty = v;
+                var flag = document.getElementById('cfbcolorvivo-dirty');
+                if (flag) flag.hidden = !v;
+                var save = document.getElementById('cfbcolorvivo-save-selection');
+                if (save) save.classList.toggle('cfbcolorvivo-pulse', v);
+            }
+            function syncUI(){
+                var all = boxes();
+                var checked = all.filter(function(cb){ return cb.checked; });
+                var counter = document.getElementById('cfbcolorvivo-sel-count');
+                if (counter) counter.textContent = String(checked.length);
+                all.forEach(function(cb){
+                    var tr = cb.closest('tr');
+                    if (tr) tr.classList.toggle('is-selected', cb.checked);
+                });
+                var visible = all.filter(rowVisible);
+                var master = document.getElementById('cfbcolorvivo-check-all');
+                if (master){
+                    var visChecked = visible.filter(function(cb){ return cb.checked; }).length;
+                    master.checked = visible.length > 0 && visChecked === visible.length;
+                    master.indeterminate = visChecked > 0 && visChecked < visible.length;
+                }
+            }
+            function applyFilter(type){
+                currentFilter = type;
+                if (!listWrap) return;
+                listWrap.querySelectorAll('tr[data-cfb-type]').forEach(function(tr){
+                    tr.style.display = (type === 'all' || tr.getAttribute('data-cfb-type') === type) ? '' : 'none';
+                });
+                listWrap.querySelectorAll('[data-cfb-filter]').forEach(function(b){
+                    b.classList.toggle('is-active', b.getAttribute('data-cfb-filter') === type);
+                });
+                syncUI();
+            }
+
+            var actionBtns = ['cfbcolorvivo-save-selection','cfbcolorvivo-test','cfbcolorvivo-check','cfbcolorvivo-off','cfbcolorvivo-on','cfbcolorvivo-diag','cfbcolorvivo-refresh-ips','cfbcolorvivo-clear-cache','cfbcolorvivo-refresh-diag'];
+            function setBtnsDisabled(disabled){
+                actionBtns.forEach(function(id){ var b=document.getElementById(id); if(b) b.disabled=disabled; });
+            }
+            function post(action, extra, cb){
+                setBtnsDisabled(true);
+                var data=new FormData();
+                data.append('action', action);
+                data.append('_ajax_nonce', nonce);
+                var sel = selection();
+                sel.forEach(function(id){ data.append('selected[]', id); });
+                data.append(optName+'[selected_records]', JSON.stringify(sel));
+
+                fetch(ajaxURL, { method:'POST', body:data, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'} })
+                .then(async function(r){
+                    var text = await r.text();
+                    try { return JSON.parse(text); }
+                    catch(e){ return { success:false, data:{ message:'Respuesta no JSON', raw:text, http:r.status } }; }
+                })
+                .then(function(res){
+                    if (res && res.data && res.data.log && Array.isArray(res.data.log)) res.data.log.forEach(println);
+                    if (res && res.log && Array.isArray(res.log)) res.log.forEach(println);
+                    cb(res);
+                })
+                .catch(function(e){ println('Error de red: '+e); })
+                .finally(function(){ showWait(false); setBtnsDisabled(false); });
+            }
+            function refreshTable(html){
+                if (listWrap && html) {
+                    listWrap.innerHTML = html;
+                    applyFilter(currentFilter);
+                }
+            }
+            function refreshSummary(callback){
+                post('cfbcolorvivo_get_status', null, function(res){
+                    if(res && res.success && res.data){
+                        var d=res.data;
+                        var g=document.getElementById('cfbcolorvivo-summary-general');
+                        var dd=document.getElementById('cfbcolorvivo-summary-domain');
+                        var i=document.getElementById('cfbcolorvivo-summary-ips');
+                        var l=document.getElementById('cfbcolorvivo-summary-lastupdate');
+                        if(g) g.textContent = (d.general==='SÍ')?'SI':'NO';
+                        if(dd) dd.textContent = (d.domain==='SÍ')?'SI':'NO';
+                        if(i) i.textContent = (d.ips && d.ips.length) ? d.ips.join(', ') : '—';
+                        if(l) l.textContent = d.last_update || '—';
+                    }
+                    if (typeof callback === 'function') callback(res);
+                });
+            }
+
+            // Delegacion: la tabla se regenera por AJAX, asi que no atamos listeners a cada fila.
+            if (listWrap) {
+                listWrap.addEventListener('change', function(e){
+                    var t = e.target;
+                    if (t && t.id === 'cfbcolorvivo-check-all'){
+                        boxes().filter(rowVisible).forEach(function(cb){ cb.checked = t.checked; });
+                        setDirty(true); syncUI(); return;
+                    }
+                    if (t && t.matches && t.matches(boxSelector)){ setDirty(true); syncUI(); }
+                });
+                listWrap.addEventListener('click', function(e){
+                    var f = e.target.closest ? e.target.closest('[data-cfb-filter]') : null;
+                    if (f){ e.preventDefault(); applyFilter(f.getAttribute('data-cfb-filter')); return; }
+                    var q = e.target.closest ? e.target.closest('[data-cfb-select]') : null;
+                    if (q){
+                        e.preventDefault();
+                        var mode = q.getAttribute('data-cfb-select');
+                        if (mode === 'all' || mode === 'none'){
+                            boxes().filter(rowVisible).forEach(function(cb){ cb.checked = (mode === 'all'); });
+                        } else {
+                            var wanted = mode.split(',');
+                            boxes().forEach(function(cb){
+                                var tr = cb.closest('tr');
+                                var ty = tr ? tr.getAttribute('data-cfb-type') : '';
+                                cb.checked = wanted.indexOf(ty) !== -1;
+                            });
+                        }
+                        setDirty(true); syncUI();
+                    }
+                });
+            }
+            window.addEventListener('beforeunload', function(e){
+                if (!dirty) return;
+                e.preventDefault();
+                e.returnValue = '';
+            });
+
+            var saveBtn = document.getElementById('cfbcolorvivo-save-selection');
+            if (saveBtn) {
+                saveBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Guardando selección de registros…');
+                    post('cfbcolorvivo_save_selection', null, function(res){
+                        if (res && res.success){
+                            setDirty(false);
+                            refreshTable(res.data && res.data.html ? res.data.html : '');
+                            println(res.data && res.data.message ? res.data.message : 'Selección guardada.');
+                        } else {
+                            println('Error: ' + ((res && res.data && res.data.message) ? res.data.message : 'no se pudo guardar la selección.'));
+                        }
+                    });
+                });
+            }
+            var testBtn = document.getElementById('cfbcolorvivo-test');
+            if (testBtn) {
+                testBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Recargando registros DNS desde Cloudflare…');
+                    post('cfbcolorvivo_test_connection', null, function(res){
+                        if (res.success){
+                            setDirty(false);
+                            refreshTable(res.data && res.data.html ? res.data.html : '');
+                            println('Lista actualizada y selección guardada.');
+                        } else {
+                            if (res.data && res.data.message) println('Error: ' + res.data.message);
+                            if (res.data && res.data.http) println('HTTP: ' + res.data.http);
+                            if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
+                        }
+                    });
+                });
+            }
+            var checkBtn = document.getElementById('cfbcolorvivo-check');
+            if (checkBtn) {
+                checkBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Comprobación manual: ejecutando…');
+                    post('cfbcolorvivo_manual_check', null, function(res){
+                        if (res.success){
+                            setDirty(false);
+                            var d=res.data||{};
+                            println('Última comprobación: '+(d.last||'—'));
+                            println('General (bloqueos IPs): '+(d.general||'—'));
+                            println('Dominio bloqueado: '+(d.domain||'—'));
+                            println('Última actualización (JSON de IPs): '+(d.last_update||'—'));
+                            refreshSummary();
+                        } else {
+                            if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
+                        }
+                    });
+                });
+            }
+            function forceAction(btnId, action, question, startMsg){
+                var btn = document.getElementById(btnId);
+                if (!btn) return;
+                btn.addEventListener('click', function(e){
+                    e.preventDefault();
+                    var n = selection().length;
+                    if (n === 0){
+                        clearConsole();
+                        println('No hay ningún registro marcado. Marca al menos uno y pulsa \"Guardar selección\".');
+                        return;
+                    }
+                    if (!confirm(question.replace('%d', n))) return;
+                    clearConsole(); showWait(true);
+                    println(startMsg);
+                    post(action, null, function(res){
+                        if (res.success){
+                            setDirty(false);
+                            refreshTable(res.data && res.data.html ? res.data.html : '');
+                            if (res.data && res.data.message) println(res.data.message);
+                            if (res.data && res.data.report) println(res.data.report);
+                            refreshSummary();
+                        } else {
+                            if (res.data && res.data.message) println('Error: ' + res.data.message);
+                            if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
+                        }
+                    });
+                });
+            }
+            forceAction('cfbcolorvivo-off', 'cfbcolorvivo_force_deactivate', '¿Forzar Proxy OFF (DNS Only) en los %d registros marcados?', 'Forzar Proxy OFF (DNS Only): iniciando…');
+            forceAction('cfbcolorvivo-on', 'cfbcolorvivo_force_activate', '¿Forzar Proxy ON (CDN) en los %d registros marcados?', 'Forzar Proxy ON (CDN): iniciando…');
+
+            var diagBtn = document.getElementById('cfbcolorvivo-diag');
+            if (diagBtn) {
+                diagBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Diagnóstico WP-Cron…');
+                    post('cfbcolorvivo_cron_diagnostics', null, function(res){
+                        if (res.success && res.data && res.data.msg) println(res.data.msg);
+                        else if (res.data && res.data.raw) println(String(res.data.raw).substring(0,1000));
+                    });
+                });
+            }
+            var refreshIpsBtn=document.getElementById('cfbcolorvivo-refresh-ips');
+            if (refreshIpsBtn){
+                refreshIpsBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Actualizando IPs del dominio…');
+                    refreshSummary(function(res){
+                        if (res && res.success) println('IPs actualizadas.');
+                    });
+                });
+            }
+            function replaceDiag(html){
+                var panel=document.getElementById('cfbcolorvivo-feed-diag');
+                if(panel && html) panel.innerHTML = html;
+            }
+            var clearCacheBtn=document.getElementById('cfbcolorvivo-clear-cache');
+            if (clearCacheBtn){
+                clearCacheBtn.addEventListener('click', function(e){
+                    e.preventDefault();
+                    if (!confirm('¿Borrar la caché local de data.json? La próxima comprobación descargará el feed remoto de nuevo.')) return;
+                    clearConsole(); showWait(true);
+                    println('Borrando caché local…');
+                    post('cfbcolorvivo_clear_data_cache', null, function(res){
+                        if (res && res.success){
+                            if (res.data && res.data.message) println(res.data.message);
+                            if (res.data && res.data.html) replaceDiag(res.data.html);
+                        } else if (res && res.data && res.data.message){
+                            println('Error: ' + res.data.message);
+                        }
+                    });
+                });
+            }
+            var refreshDiagBtn=document.getElementById('cfbcolorvivo-refresh-diag');
+            if (refreshDiagBtn){
+                refreshDiagBtn.addEventListener('click', function(e){
+                    e.preventDefault(); clearConsole(); showWait(true);
+                    println('Refrescando diagnóstico…');
+                    post('cfbcolorvivo_feed_diagnostics', null, function(res){
+                        if (res && res.success){
+                            if (res.data && res.data.html) replaceDiag(res.data.html);
+                            println('Diagnóstico actualizado.');
+                        }
+                    });
+                });
+            }
+            syncUI();
+        })();";
+	}
+
+	/** Return the inline JavaScript for the settings page form. */
+	private function get_settings_page_js() {
+		return "(function(){
+            var form = document.getElementById('cfbcolorvivo-settings-form');
+            var warn = document.getElementById('cfbcolorvivo-warn-settings');
+            var pre  = document.getElementById('cfbcolorvivo-console-pre-settings');
+            if (form) {
+                form.addEventListener('submit', function(e){
+                    if (warn) warn.style.display = '';
+                    if (pre) {
+                        var ts = new Date().toLocaleTimeString();
+                        pre.textContent += '['+ts+'] Enviando ajustes… verificando credenciales y permisos en Cloudflare.\\n';
+                    }
+                });
+            }
+        })();";
+	}
+
+	/** Return the inline JavaScript for toggling auth type fields. */
+	private function get_auth_type_js() {
+		return "document.addEventListener('DOMContentLoaded',function(){
+            var sel=document.getElementById('cfbcolorvivo_auth_type');
+            var email=document.getElementById('cfbcolorvivo_email_input');
+            var emailRow=email?email.closest('tr'):null;
+            var accId=document.getElementById('cfbcolorvivo_account_id_input');
+            var accRow=accId?accId.closest('tr'):null;
+            function t(){
+                if(emailRow) emailRow.style.display=(sel.value==='global')?'':'none';
+                if(accRow) accRow.style.display=(sel.value==='account_token')?'':'none';
+            }
+            if(sel){ sel.addEventListener('change',t); t(); }
+        });";
+	}
+
+	/* ================== Settings API ================== */
+
+	/** Register settings, sections, and fields for the Settings API. */
+	public function settings_init() {
+		register_setting(
+			'cfbcolorvivo_settings_group',
+			$this->option_name,
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => array( $this, 'sanitize_settings' ),
+			)
+		);
+
+		$s          = $this->get_settings();
+		$is_advanced = ( ( $s['ui_mode'] ?? 'simple' ) === 'advanced' );
+		$page        = 'cfbcolorvivo_settings_page';
+
+		// Sección: Modo de interfaz (palanca maestra, siempre visible y al principio).
+		add_settings_section( 'cfbcolorvivo_ui_section', __( 'Interface mode', 'es-football-bypass-for-cloudflare' ), '__return_false', $page );
+		add_settings_field( 'ui_mode', __( 'Interface mode', 'es-football-bypass-for-cloudflare' ), array( $this, 'ui_mode_render' ), $page, 'cfbcolorvivo_ui_section' );
+
+		// Sección: Credenciales Cloudflare.
+		add_settings_section( 'cfbcolorvivo_cloudflare_section', __( 'Cloudflare Credentials', 'es-football-bypass-for-cloudflare' ), '__return_false', $page );
+		add_settings_field( 'auth_type', __( 'Authentication type', 'es-football-bypass-for-cloudflare' ), array( $this, 'auth_type_render' ), $page, 'cfbcolorvivo_cloudflare_section' );
+		add_settings_field( 'cloudflare_email', __( 'Email (Global API Key only)', 'es-football-bypass-for-cloudflare' ), array( $this, 'email_render' ), $page, 'cfbcolorvivo_cloudflare_section' );
+		add_settings_field( 'cloudflare_api_key', __( 'Global API Key or Token', 'es-football-bypass-for-cloudflare' ), array( $this, 'api_key_render' ), $page, 'cfbcolorvivo_cloudflare_section' );
+		add_settings_field( 'cloudflare_zone_id', __( 'Zone ID', 'es-football-bypass-for-cloudflare' ), array( $this, 'zone_id_render' ), $page, 'cfbcolorvivo_cloudflare_section' );
+		add_settings_field( 'cloudflare_account_id', __( 'Account ID (Account Token only)', 'es-football-bypass-for-cloudflare' ), array( $this, 'account_id_render' ), $page, 'cfbcolorvivo_cloudflare_section' );
+		add_settings_field( 'server_outgoing_ip', __( 'Server outgoing IP', 'es-football-bypass-for-cloudflare' ), array( $this, 'server_outgoing_ip_render' ), $page, 'cfbcolorvivo_cloudflare_section' );
+
+		// Sección: Comportamiento del bypass (lo esencial del día a día).
+		add_settings_section( 'cfbcolorvivo_bypass_section', __( 'Bypass behavior', 'es-football-bypass-for-cloudflare' ), '__return_false', $page );
+		add_settings_field( 'force_proxy_off_override', __( 'Force Proxy OFF during football', 'es-football-bypass-for-cloudflare' ), array( $this, 'force_proxy_off_override_render' ), $page, 'cfbcolorvivo_bypass_section' );
+		add_settings_field( 'check_interval', __( 'Check interval (minutes)', 'es-football-bypass-for-cloudflare' ), array( $this, 'check_interval_render' ), $page, 'cfbcolorvivo_bypass_section' );
+		add_settings_field( 'bypass_check_cooldown', __( 'Cooldown after disabling Cloudflare (min)', 'es-football-bypass-for-cloudflare' ), array( $this, 'bypass_check_cooldown_render' ), $page, 'cfbcolorvivo_bypass_section' );
+		add_settings_field( 'min_isps_blocked', __( 'Minimum ISPs with blocks', 'es-football-bypass-for-cloudflare' ), array( $this, 'min_isps_blocked_render' ), $page, 'cfbcolorvivo_bypass_section' );
+		add_settings_field( 'selected_records', __( 'DNS records to manage (loaded in Operation)', 'es-football-bypass-for-cloudflare' ), array( $this, 'selected_records_hint' ), $page, 'cfbcolorvivo_bypass_section' );
+
+		// Sección: Avisos por email.
+		add_settings_section( 'cfbcolorvivo_email_section', __( 'Email notifications', 'es-football-bypass-for-cloudflare' ), '__return_false', $page );
+		add_settings_field( 'email_notifications', __( 'Enable email notifications', 'es-football-bypass-for-cloudflare' ), array( $this, 'email_notifications_render' ), $page, 'cfbcolorvivo_email_section' );
+		add_settings_field( 'notification_email', __( 'Notifications recipient', 'es-football-bypass-for-cloudflare' ), array( $this, 'notification_email_render' ), $page, 'cfbcolorvivo_email_section' );
+
+		// Sección: Al desinstalar.
+		add_settings_section( 'cfbcolorvivo_uninstall_section', __( 'Uninstall', 'es-football-bypass-for-cloudflare' ), '__return_false', $page );
+		add_settings_field( 'delete_data_on_uninstall', __( 'Delete data on uninstall', 'es-football-bypass-for-cloudflare' ), array( $this, 'delete_data_on_uninstall_render' ), $page, 'cfbcolorvivo_uninstall_section' );
+
+		// Sección: Opciones avanzadas (solo visible en modo Advanced).
+		if ( $is_advanced ) {
+			add_settings_section( 'cfbcolorvivo_advanced_section', __( 'Advanced options', 'es-football-bypass-for-cloudflare' ), array( $this, 'advanced_section_intro' ), $page );
+			add_settings_field( 'stale_threshold_hours', __( 'Staleness threshold (hours)', 'es-football-bypass-for-cloudflare' ), array( $this, 'stale_threshold_hours_render' ), $page, 'cfbcolorvivo_advanced_section' );
+			add_settings_field( 'logging_enabled', __( 'Action logging', 'es-football-bypass-for-cloudflare' ), array( $this, 'logging_enabled_render' ), $page, 'cfbcolorvivo_advanced_section' );
+			add_settings_field( 'log_retention_days', __( 'Log retention (days)', 'es-football-bypass-for-cloudflare' ), array( $this, 'log_retention_render' ), $page, 'cfbcolorvivo_advanced_section' );
+			add_settings_field( 'cron_secret', __( 'External cron token', 'es-football-bypass-for-cloudflare' ), array( $this, 'cron_secret_render' ), $page, 'cfbcolorvivo_advanced_section' );
+		}
+	}
+
+	/** Intro text shown under the "Advanced options" section header. */
+	public function advanced_section_intro() {
+		echo '<p class="description">' . esc_html__( 'Technical options. The defaults work fine for most sites — only touch these if you need to fine-tune behavior or you are diagnosing a problem.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+	}
+
+	/**
+	 * Sanitize and validate settings input from the settings form or AJAX.
+	 *
+	 * @param array $input Raw input from the settings form.
+	 * @return array Sanitized settings.
+	 */
+	public function sanitize_settings( $input ) {
+		$existing = get_option( $this->option_name, array() );
+		$san      = array();
+
+		// Detectar si viene del formulario de configuración (necesario para manejar checkboxes correctamente).
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce is verified by WordPress Settings API before this callback
+		$is_settings_form = ! wp_doing_ajax() && isset( $_POST['option_page'] ) && sanitize_text_field( wp_unslash( $_POST['option_page'] ) ) === 'cfbcolorvivo_settings_group';
+
+		// Campos de credenciales / core.
+		$san['cloudflare_email']      = isset( $input['cloudflare_email'] ) ? sanitize_email( $input['cloudflare_email'] ) : ( $existing['cloudflare_email'] ?? '' );
+		$san['cloudflare_api_key']    = isset( $input['cloudflare_api_key'] ) ? sanitize_text_field( $input['cloudflare_api_key'] ) : ( $existing['cloudflare_api_key'] ?? '' );
+		$san['cloudflare_zone_id']    = isset( $input['cloudflare_zone_id'] ) ? sanitize_text_field( $input['cloudflare_zone_id'] ) : ( $existing['cloudflare_zone_id'] ?? '' );
+		$san['cloudflare_account_id'] = isset( $input['cloudflare_account_id'] ) ? sanitize_text_field( $input['cloudflare_account_id'] ) : ( $existing['cloudflare_account_id'] ?? '' );
+		$auth                         = isset( $input['auth_type'] ) ? sanitize_text_field( $input['auth_type'] ) : ( $existing['auth_type'] ?? 'global' );
+		$san['auth_type']             = in_array( $auth, array( 'global', 'token', 'account_token' ), true ) ? $auth : 'global';
+
+		$mins_in               = isset( $input['check_interval'] ) ? intval( $input['check_interval'] ) : ( $existing['check_interval'] ?? 15 );
+		$san['check_interval'] = max( 5, min( 60, $mins_in ) );
+
+		// Si llegan desde AJAX estos campos, respetarlos (no pisar).
+		$san['dns_records_cache'] = array_key_exists( 'dns_records_cache', $input ) ? $input['dns_records_cache'] : ( $existing['dns_records_cache'] ?? array() );
+		$raw_selected             = array_key_exists( 'selected_records', $input ) ? $input['selected_records'] : ( $existing['selected_records'] ?? array() );
+		$san['selected_records']  = is_array( $raw_selected ) ? array_map( 'sanitize_text_field', $raw_selected ) : array();
+
+		// Estado persistente.
+		$san['dns_cache_last_sync'] = array_key_exists( 'dns_cache_last_sync', $input ) ? sanitize_text_field( $input['dns_cache_last_sync'] ) : ( $existing['dns_cache_last_sync'] ?? '' );
+		$san['last_check']          = array_key_exists( 'last_check', $input ) ? sanitize_text_field( $input['last_check'] ) : ( $existing['last_check'] ?? '' );
+		$raw_general                = array_key_exists( 'last_status_general', $input ) ? sanitize_text_field( $input['last_status_general'] ) : ( $existing['last_status_general'] ?? 'NO' );
+		$san['last_status_general'] = in_array( $raw_general, array( 'SI', 'NO' ), true ) ? $raw_general : 'NO';
+		$raw_domain                 = array_key_exists( 'last_status_domain', $input ) ? sanitize_text_field( $input['last_status_domain'] ) : ( $existing['last_status_domain'] ?? 'NO' );
+		$san['last_status_domain']  = in_array( $raw_domain, array( 'SI', 'NO' ), true ) ? $raw_domain : 'NO';
+		$san['last_update']         = array_key_exists( 'last_update', $input ) ? sanitize_text_field( $input['last_update'] ) : ( $existing['last_update'] ?? '' );
+		// FIX: Mismo tratamiento para checkboxes - si viene del formulario y no está marcado, debe ser 0.
+		if ( $is_settings_form ) {
+			$san['logging_enabled'] = ! empty( $input['logging_enabled'] ) ? 1 : 0;
+		} else {
+			$san['logging_enabled'] = isset( $input['logging_enabled'] ) ? (int) ! empty( $input['logging_enabled'] ) : ( $existing['logging_enabled'] ?? 1 );
+		}
+		$san['log_retention_days']    = isset( $input['log_retention_days'] ) ? intval( $input['log_retention_days'] ) : ( $existing['log_retention_days'] ?? 30 );
+		$stale_in                     = isset( $input['stale_threshold_hours'] ) ? intval( $input['stale_threshold_hours'] ) : ( $existing['stale_threshold_hours'] ?? 6 );
+		$san['stale_threshold_hours'] = max( 1, min( 72, $stale_in ) );
+		$min_isps_in                  = isset( $input['min_isps_blocked'] ) ? intval( $input['min_isps_blocked'] ) : ( $existing['min_isps_blocked'] ?? 2 );
+		$san['min_isps_blocked']      = max( 1, min( 20, $min_isps_in ) );
+
+		if ( $is_settings_form ) {
+			$san['email_notifications'] = ! empty( $input['email_notifications'] ) ? 1 : 0;
+		} else {
+			$san['email_notifications'] = isset( $input['email_notifications'] ) ? (int) ! empty( $input['email_notifications'] ) : ( $existing['email_notifications'] ?? 0 );
+		}
+
+		$notif_email_raw = isset( $input['notification_email'] ) ? trim( (string) $input['notification_email'] ) : ( $existing['notification_email'] ?? '' );
+		if ( '' === $notif_email_raw ) {
+			$san['notification_email'] = '';
+		} else {
+			$clean = sanitize_email( $notif_email_raw );
+			$san['notification_email'] = is_email( $clean ) ? $clean : '';
+		}
+
+		$ui_mode_in      = isset( $input['ui_mode'] ) ? sanitize_text_field( $input['ui_mode'] ) : ( $existing['ui_mode'] ?? 'simple' );
+		$san['ui_mode']  = in_array( $ui_mode_in, array( 'simple', 'advanced' ), true ) ? $ui_mode_in : 'simple';
+
+		if ( $is_settings_form ) {
+			$san['delete_data_on_uninstall'] = ! empty( $input['delete_data_on_uninstall'] ) ? 1 : 0;
+		} else {
+			$san['delete_data_on_uninstall'] = isset( $input['delete_data_on_uninstall'] ) ? (int) ! empty( $input['delete_data_on_uninstall'] ) : ( $existing['delete_data_on_uninstall'] ?? 1 );
+		}
+		$san['bypass_check_cooldown'] = isset( $input['bypass_check_cooldown'] ) ? intval( $input['bypass_check_cooldown'] ) : ( $existing['bypass_check_cooldown'] ?? 60 );
+
+		$existing_secret    = (string) ( $existing['cron_secret'] ?? '' );
+		$san['cron_secret'] = isset( $input['cron_secret'] ) ? sanitize_text_field( $input['cron_secret'] ) : $existing_secret;
+		// Vaciar el campo genera un token nuevo. Un valor corto solo se rechaza si cambia: los ya guardados siguen valiendo para no romper crons existentes.
+		$cron_secret_rejected = '' !== $san['cron_secret'] && $san['cron_secret'] !== $existing_secret && strlen( $san['cron_secret'] ) < self::MIN_CRON_SECRET_LENGTH;
+		if ( $cron_secret_rejected ) {
+			$san['cron_secret'] = $existing_secret;
+		}
+
+		// log_secret no es un campo del formulario: preservar el existente para no cambiar el nombre del fichero de log en cada guardado (normalize lo regenera si está vacío).
+		$san['log_secret']            = ( ! empty( $existing['log_secret'] ) && is_string( $existing['log_secret'] ) ) ? $existing['log_secret'] : '';
+		$san['bypass_active']         = isset( $input['bypass_active'] ) ? (int) ! empty( $input['bypass_active'] ) : ( $existing['bypass_active'] ?? 0 );
+		$raw_blocked_ips              = array_key_exists( 'bypass_blocked_ips', $input ) ? (array) $input['bypass_blocked_ips'] : ( $existing['bypass_blocked_ips'] ?? array() );
+		$san['bypass_blocked_ips']    = array_map( 'sanitize_text_field', $raw_blocked_ips );
+		$san['bypass_last_change']    = isset( $input['bypass_last_change'] ) ? intval( $input['bypass_last_change'] ) : ( $existing['bypass_last_change'] ?? 0 );
+
+		// MODIFICACIÓN: Sanitizar force_proxy_off_override
+		// FIX: Cuando viene del formulario de configuración, los checkboxes desmarcados no envían nada,
+		// así que debemos establecer a 0 si no está presente. Cuando viene de AJAX, mantener el valor existente.
+		if ( $is_settings_form ) {
+			$san['force_proxy_off_override'] = ! empty( $input['force_proxy_off_override'] ) ? 1 : 0;
+		} else {
+			$san['force_proxy_off_override'] = isset( $input['force_proxy_off_override'] ) ? (int) ! empty( $input['force_proxy_off_override'] ) : ( $existing['force_proxy_off_override'] ?? 0 );
+		}
+
+		// Normaliza estructuras.
+		list($san,) = $this->normalize_settings( $san );
+
+		// Reprogramar cron si cambia intervalo.
+		if ( ! isset( $existing['check_interval'] ) || intval( $existing['check_interval'] ) !== intval( $san['check_interval'] ) ) {
+			$this->reschedule_cron_after_interval_change();
+		}
+
+		// Test sólo si guardas desde la página de ajustes (no AJAX).
+		// (variable $is_settings_form ya calculada al inicio de la función).
+		if ( $is_settings_form ) {
+			$trace = array();
+			$ok    = $this->quick_settings_test( $san, $trace );
+			if ( $cron_secret_rejected ) {
+				/* translators: %d is the minimum number of characters. */
+				$trace[] = sprintf( __( 'The external cron token was not changed: it must have at least %d characters.', 'es-football-bypass-for-cloudflare' ), self::MIN_CRON_SECRET_LENGTH );
+			}
+			// Guardar último log para la consola de Configuración.
+			update_option(
+				'cfbcolorvivo_settings_last_trace',
+				array(
+					'ok'    => (bool) $ok,
+					'trace' => $trace,
+					'ts'    => current_time( 'mysql' ),
+				)
+			);
+			if ( $ok ) {
+				set_transient( 'cfbcolorvivo_settings_notice_ok', implode( "\n", $trace ), 60 );
+				delete_transient( 'cfbcolorvivo_settings_notice_err' ); } else {
+				set_transient( 'cfbcolorvivo_settings_notice_err', implode( "\n", $trace ), 60 );
+				delete_transient( 'cfbcolorvivo_settings_notice_ok' ); }
+		}
+
+		return $san;
+	}
+
+	/** Display admin notices after saving settings. */
+	public function settings_save_notices() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Only reading page parameter to display notices, no data processing
+		if ( isset( $_GET['page'] ) && sanitize_text_field( wp_unslash( $_GET['page'] ) ) === 'cfbcolorvivo-settings' ) {
+			$msg = get_transient( 'cfbcolorvivo_settings_notice_ok' );
+			if ( $msg ) {
+				echo '<div class="notice notice-success"><p><strong>' . esc_html__( 'Connection OK:', 'es-football-bypass-for-cloudflare' ) . '</strong><br><pre style="white-space:pre-wrap">' . esc_html( $msg ) . '</pre></p></div>';
+				delete_transient( 'cfbcolorvivo_settings_notice_ok' );
+			}
+			$msg = get_transient( 'cfbcolorvivo_settings_notice_err' );
+			if ( $msg ) {
+				echo '<div class="notice notice-error"><p><strong>' . esc_html__( 'Connection error:', 'es-football-bypass-for-cloudflare' ) . '</strong><br><pre style="white-space:pre-wrap">' . esc_html( $msg ) . '</pre></p></div>';
+				delete_transient( 'cfbcolorvivo_settings_notice_err' );
+			}
+		}
+	}
+
+	/** Unschedule and reschedule the cron event with the current interval. */
+	private function reschedule_cron_after_interval_change() {
+		$s         = $this->get_settings();
+		$interval  = max( 5, min( 60, intval( $s['check_interval'] ) ) );
+		$timestamp = wp_next_scheduled( $this->cron_hook );
+		if ( $timestamp ) {
+			wp_unschedule_event( $timestamp, $this->cron_hook );
+		}
+		add_filter(
+			'cron_schedules',
+			function ( $schedules ) use ( $interval ) {
+				$schedules['cf_fb_custom'] = array(
+					'interval' => $interval * 60,
+					'display'  => 'CFB cada ' . $interval . ' minutos',
+				);
+				return $schedules;
+			}
+		);
+		wp_schedule_event( time() + 60, 'cf_fb_custom', $this->cron_hook );
+	}
+	/**
+	 * Add a custom cron schedule interval based on plugin settings.
+	 *
+	 * @param array $schedules Existing cron schedules.
+	 * @return array Modified cron schedules.
+	 */
+	public function add_custom_cron_interval( $schedules ) {
+		$s                         = $this->get_settings();
+		$interval                  = max( 5, min( 60, intval( $s['check_interval'] ) ) );
+		$schedules['cf_fb_custom'] = array(
+			'interval' => $interval * 60,
+			'display'  => 'CFB cada ' . $interval . ' minutos',
+		);
+		return $schedules;
+	}
+
+	/* ================== Render: Configuración ================== */
+
+	/** Render the plugin settings page. */
+	public function render_settings_page() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		echo '<div class="wrap"><h1>ES Football Bypass — Configuración</h1>';
+		echo '<p>' . esc_html__( 'Saving automatically verifies the connection and permissions (does not alter your DNS cache).', 'es-football-bypass-for-cloudflare' ) . '</p>';
+		echo '<form id="cfbcolorvivo-settings-form" method="post" action="options.php">';
+		settings_fields( 'cfbcolorvivo_settings_group' );
+		do_settings_sections( 'cfbcolorvivo_settings_page' );
+		submit_button( 'Guardar cambios y verificar' );
+		echo '</form>';
+
+		// Consola propia de Configuración (muestra último log guardado).
+		$last = get_option( 'cfbcolorvivo_settings_last_trace' );
+		echo '<div class="notice notice-info" style="padding:10px;white-space:pre-wrap;line-height:1.3;margin-top:10px">';
+		echo '<strong>' . esc_html__( 'Console:', 'es-football-bypass-for-cloudflare' ) . '</strong>';
+		echo '<div id="cfbcolorvivo-warn-settings" style="color:#b32d2e;font-weight:600;margin:6px 0 0 0;display:none;">' . esc_html__( '⏳ Wait a few seconds for the operation to complete…', 'es-football-bypass-for-cloudflare' ) . '</div>';
+		echo '<pre id="cfbcolorvivo-console-pre-settings" style="margin:6px 0 0 0;white-space:pre-wrap;">';
+		if ( is_array( $last ) && ! empty( $last['trace'] ) ) {
+			foreach ( $last['trace'] as $line ) {
+				echo esc_html( $line ) . "\n";
+			}
+		}
+		echo '</pre></div>';
+		$plugin_data = get_plugin_data( CFBCOLORVIVO_PLUGIN_FILE );
+		echo '<p style="text-align:right;color:#999;font-size:12px;margin-top:20px;">' . esc_html( 'Version ' . $plugin_data['Version'] ) . '</p>';
+		echo '</div>';
+	}
+
+	/** Render the logs viewer page. */
+	public function render_logs_page() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		$s       = $this->get_settings();
+		$path    = $this->get_log_file_path();
+		$enabled = ! empty( $s['logging_enabled'] );
+		$entries = $enabled ? $this->read_log_entries( 250 ) : array();
+		echo '<div class="wrap"><h1>ES Football Bypass — Logs</h1>';
+		echo '<p>Archivo: <code>' . esc_html( $path ) . '</code></p>';
+		echo '<p>Estado: <strong>' . esc_html( $enabled ? __( 'Active', 'es-football-bypass-for-cloudflare' ) : __( 'Disabled', 'es-football-bypass-for-cloudflare' ) ) . '</strong>. ';
+		// translators: %d is the number of days for log retention.
+		printf( '%s</p>', esc_html( sprintf( __( 'Retention: %d days.', 'es-football-bypass-for-cloudflare' ), intval( $s['log_retention_days'] ?? 30 ) ) ) );
+		if ( ! $enabled ) {
+			echo '<div class="notice notice-warning"><p>' . esc_html__( 'Logging is disabled. Enable it in the Settings tab.', 'es-football-bypass-for-cloudflare' ) . '</p></div>';
+		}
+		if ( $enabled && empty( $entries ) ) {
+			if ( ! file_exists( $path ) ) {
+				echo '<p>' . esc_html__( 'No events recorded yet.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+			} else {
+				echo '<p>' . esc_html__( 'The log file exists but contains no recent events.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+			}
+		}
+		if ( $enabled && ! empty( $entries ) ) {
+			echo '<table class="widefat striped" style="margin-top:15px">';
+			echo '<thead><tr><th>' . esc_html__( 'Date', 'es-football-bypass-for-cloudflare' ) . '</th><th>' . esc_html__( 'Type', 'es-football-bypass-for-cloudflare' ) . '</th><th>' . esc_html__( 'Message', 'es-football-bypass-for-cloudflare' ) . '</th><th>' . esc_html__( 'Context', 'es-football-bypass-for-cloudflare' ) . '</th></tr></thead><tbody>';
+			foreach ( $entries as $entry ) {
+				echo '<tr>';
+				echo '<td>' . esc_html( $entry['time'] ?? '' ) . '</td>';
+				echo '<td>' . esc_html( $entry['type'] ?? 'info' ) . '</td>';
+				echo '<td>' . esc_html( $entry['message'] ?? '' ) . '</td>';
+				echo '<td>';
+				if ( ! empty( $entry['context'] ) && is_array( $entry['context'] ) ) {
+					echo esc_html( wp_json_encode( $entry['context'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) );
+				}
+				echo '</td>';
+				echo '</tr>';
+			}
+			echo '</tbody></table>';
+			echo '<p style="margin-top:10px;font-size:12px;color:#666">' . esc_html__( 'Showing the 250 most recent events.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+		}
+		$plugin_data = get_plugin_data( CFBCOLORVIVO_PLUGIN_FILE );
+		echo '<p style="text-align:right;color:#999;font-size:12px;margin-top:20px;">' . esc_html( 'Version ' . $plugin_data['Version'] ) . '</p>';
+		echo '</div>';
+	}
+
+	/** Render the authentication type selector field. */
+	public function auth_type_render() {
+		$s = $this->get_settings(); ?>
+		<select name="<?php echo esc_attr( $this->option_name ); ?>[auth_type]" id="cfbcolorvivo_auth_type">
+			<option value="global"        <?php selected( $s['auth_type'], 'global' ); ?>>Global API Key</option>
+			<option value="token"         <?php selected( $s['auth_type'], 'token' ); ?>>API Token de usuario (Bearer)</option>
+			<option value="account_token" <?php selected( $s['auth_type'], 'account_token' ); ?>>API Token de cuenta (Bearer)</option>
+		</select>
+		<p class="description"><?php echo esc_html__( 'Global API Key requires email. User tokens are in My Profile. Account tokens are in Manage Account > Account API Tokens (requires Super Administrator). Minimum permissions: Zone:Read, DNS:Read, DNS:Edit.', 'es-football-bypass-for-cloudflare' ); ?></p>
+		<?php
+	}
+	/** Render the Cloudflare email input field. */
+	public function email_render() {
+		$s = $this->get_settings();
+		printf(
+			'<input id="cfbcolorvivo_email_input" type="email" name="%1$s[cloudflare_email]" value="%2$s" class="regular-text" autocomplete="off" />',
+			esc_attr( $this->option_name ),
+			esc_attr( $s['cloudflare_email'] )
+		);
+	}
+	/** Render the API key/token input field. */
+	public function api_key_render() {
+		$s = $this->get_settings();
+		?>
+		<input type="password" autocomplete="new-password" name="<?php echo esc_attr( $this->option_name ); ?>[cloudflare_api_key]" value="<?php echo esc_attr( $s['cloudflare_api_key'] ); ?>" class="regular-text" />
+		<p class="description"><?php echo esc_html__( 'Never shown in traces or console.', 'es-football-bypass-for-cloudflare' ); ?></p>
+		<?php
+	}
+	/** Render the Zone ID input field. */
+	public function zone_id_render() {
+		$s = $this->get_settings();
+		?>
+		<input type="text" name="<?php echo esc_attr( $this->option_name ); ?>[cloudflare_zone_id]" value="<?php echo esc_attr( $s['cloudflare_zone_id'] ); ?>" class="regular-text" />
+		<?php
+	}
+	/** Render the Account ID input field. */
+	public function account_id_render() {
+		$s = $this->get_settings();
+		?>
+		<input type="text" name="<?php echo esc_attr( $this->option_name ); ?>[cloudflare_account_id]" value="<?php echo esc_attr( $s['cloudflare_account_id'] ?? '' ); ?>" class="regular-text" id="cfbcolorvivo_account_id_input" />
+		<p class="description"><?php esc_html_e( 'Required only for account tokens. You can find it in the URL of the Cloudflare dashboard: dash.cloudflare.com/ACCOUNT_ID', 'es-football-bypass-for-cloudflare' ); ?></p>
+		<?php
+	}
+	/** Render the server outgoing IP display field. */
+	public function server_outgoing_ip_render() {
+		$ips = $this->get_server_outgoing_ips();
+		if ( empty( $ips ) ) {
+			echo '<code>' . esc_html__( 'Could not be detected', 'es-football-bypass-for-cloudflare' ) . '</code>';
+			echo '<p class="description">' . esc_html__( 'The server outgoing IP could not be determined. Verify that the server has Internet access.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+		} elseif ( count( $ips ) === 1 ) {
+			echo '<code style="font-size:14px;padding:4px 8px;background:#f0f0f1;">' . esc_html( $ips[0] ) . '</code>';
+			echo '<p class="description">' . esc_html__( 'This is the IP your server uses to communicate with the Cloudflare API. You can restrict your API Token to this IP for added security.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+		} else {
+			foreach ( $ips as $i => $ip ) {
+				if ( $i > 0 ) {
+					echo ' ';
+				}
+				echo '<code style="font-size:14px;padding:4px 8px;background:#f0f0f1;">' . esc_html( $ip ) . '</code>';
+			}
+			echo '<p class="description">' . esc_html__( 'Multiple outgoing IPs have been detected. Your server may use any of them to communicate with the Cloudflare API. Add all of them when restricting your API Token.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+		}
+	}
+	/** Render the check interval input field. */
+	public function check_interval_render() {
+		$s = $this->get_settings();
+		printf(
+			'<input type="number" min="5" max="60" name="%1$s[check_interval]" value="%2$d" class="small-text" />',
+			esc_attr( $this->option_name ),
+			intval( $s['check_interval'] )
+		);
+	}
+	/** Render the selected records hint text. */
+	public function selected_records_hint() {
+		echo '<p class="description">' . wp_kses( __( 'Select the records to manage in the <strong>Operation</strong> tab (using the cache).', 'es-football-bypass-for-cloudflare' ), array( 'strong' => array() ) ) . '</p>';
+	}
+	/** Render the bypass cooldown input field. */
+	public function bypass_check_cooldown_render() {
+		$s   = $this->get_settings();
+		$val = isset( $s['bypass_check_cooldown'] ) ? intval( $s['bypass_check_cooldown'] ) : 60;
+		printf(
+			'<input type="number" min="5" max="1440" name="%1$s[bypass_check_cooldown]" value="%2$d" class="small-text" />',
+			esc_attr( $this->option_name ),
+			esc_attr( $val )
+		);
+		echo '<p class="description">' . esc_html__( 'Minutes that must pass after disabling Cloudflare before checking if it can be reactivated (5-1440).', 'es-football-bypass-for-cloudflare' ) . '</p>';
+	}
+
+	/** Render the staleness threshold input field (hours). */
+	public function stale_threshold_hours_render() {
+		$s   = $this->get_settings();
+		$val = isset( $s['stale_threshold_hours'] ) ? intval( $s['stale_threshold_hours'] ) : 6;
+		printf(
+			'<input type="number" min="1" max="72" name="%1$s[stale_threshold_hours]" value="%2$d" class="small-text" />',
+			esc_attr( $this->option_name ),
+			esc_attr( $val )
+		);
+		echo '<p class="description">' . esc_html__( 'Ignore "blocked" states whose most recent stateChange in hayahora.futbol is older than this (1-72 hours, default 6). Prevents orphan records from keeping the bypass active indefinitely when a close event was never published.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+	}
+
+	/** Render the UI mode selector (simple vs advanced). */
+	public function ui_mode_render() {
+		$s   = $this->get_settings();
+		$val = isset( $s['ui_mode'] ) ? $s['ui_mode'] : 'simple';
+		?>
+		<label><input type="radio" name="<?php echo esc_attr( $this->option_name ); ?>[ui_mode]" value="simple" <?php checked( $val, 'simple' ); ?>> <?php esc_html_e( 'Simple (recommended for clients)', 'es-football-bypass-for-cloudflare' ); ?></label><br>
+		<label><input type="radio" name="<?php echo esc_attr( $this->option_name ); ?>[ui_mode]" value="advanced" <?php checked( $val, 'advanced' ); ?>> <?php esc_html_e( 'Advanced (show diagnostics, logs, cron settings and technical details)', 'es-football-bypass-for-cloudflare' ); ?></label>
+		<p class="description"><?php esc_html_e( 'Simple mode hides the feed diagnostics panel, the logs tab, the technical console and the advanced options (staleness threshold, log retention and external cron token) — leaving only the block status, the manual proxy ON/OFF buttons and the basic email notifications. Logs are still written to disk: switch to Advanced temporarily if you need to diagnose a problem or configure an external cron.', 'es-football-bypass-for-cloudflare' ); ?></p>
+		<?php
+	}
+
+	/** Render the email-notifications checkbox field. */
+	public function email_notifications_render() {
+		$s       = $this->get_settings();
+		$checked = ! empty( $s['email_notifications'] ) ? 'checked' : '';
+		echo '<label><input type="checkbox" name="' . esc_attr( $this->option_name ) . '[email_notifications]" value="1" ' . esc_attr( $checked ) . '> ' . esc_html__( 'Send an email when the bypass turns on or off automatically', 'es-football-bypass-for-cloudflare' ) . '</label>';
+		echo '<p class="description">' . esc_html__( 'Emails are sent only on actual state changes from the cron (not on manual override). A 2-minute throttle prevents bursts if the feed oscillates.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+	}
+
+	/** Render the notifications recipient email field. */
+	public function notification_email_render() {
+		$s     = $this->get_settings();
+		$val   = isset( $s['notification_email'] ) ? $s['notification_email'] : '';
+		$admin = get_option( 'admin_email' );
+		printf(
+			'<input type="email" name="%1$s[notification_email]" value="%2$s" class="regular-text" placeholder="%3$s" autocomplete="off" />',
+			esc_attr( $this->option_name ),
+			esc_attr( $val ),
+			esc_attr( $admin )
+		);
+		/* translators: %s is the site administrator email address. */
+		echo '<p class="description">' . sprintf( esc_html__( 'Optional. Leave empty to use the site administrator address (%s). Set a different address here to send notifications elsewhere — useful when the plugin is managed by an agency or support team and the site admin is the final client.', 'es-football-bypass-for-cloudflare' ), '<code>' . esc_html( $admin ) . '</code>' ) . '</p>';
+	}
+
+	/** Render the minimum-ISPs-with-blocks input field. */
+	public function min_isps_blocked_render() {
+		$s   = $this->get_settings();
+		$val = isset( $s['min_isps_blocked'] ) ? intval( $s['min_isps_blocked'] ) : 2;
+		printf(
+			'<input type="number" min="1" max="20" name="%1$s[min_isps_blocked]" value="%2$d" class="small-text" />',
+			esc_attr( $this->option_name ),
+			esc_attr( $val )
+		);
+		echo '<p class="description">' . esc_html__( 'Minimum number of distinct ISPs (providers) with currently blocked IPs needed to consider there is a real mass block (1-20, default 2). Lower values are more sensitive; 1 triggers on any single-ISP glitch. Only applies when the feed publishes ISP information; ignored otherwise.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+	}
+
+	/** Render the force proxy off override checkbox field. */
+	public function force_proxy_off_override_render() {
+		$s       = $this->get_settings();
+		$checked = ! empty( $s['force_proxy_off_override'] ) ? 'checked' : '';
+		echo '<label><input type="checkbox" name="' . esc_attr( $this->option_name ) . '[force_proxy_off_override]" value="1" ' . esc_attr( $checked ) . '> ' . esc_html__( 'Disable Proxy during football (General=YES), without waiting for this domain detection', 'es-football-bypass-for-cloudflare' ) . '</label>';
+		echo '<p class="description" style="color:#d63638;font-weight:600;">' . esc_html__( 'IMPORTANT: With this option enabled, the proxy will be automatically disabled when hayahora.futbol indicates active blocks (General=YES), even if your specific domain has not been detected as blocked.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'Useful to avoid false negatives when you know your site is blocked during football events but IP detection doesn\'t always work correctly.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+	}
+
+	/** Render the logging enabled checkbox field. */
+	public function logging_enabled_render() {
+		$s       = $this->get_settings();
+		$checked = ! empty( $s['logging_enabled'] ) ? 'checked' : '';
+		echo '<label><input type="checkbox" name="' . esc_attr( $this->option_name ) . '[logging_enabled]" value="1" ' . esc_attr( $checked ) . '> ' . esc_html__( 'Save actions to log (cron and manual)', 'es-football-bypass-for-cloudflare' ) . '</label>';
+		echo '<p class="description">' . esc_html__( 'Logs are stored in the uploads directory, protected with .htaccess, and displayed in the Logs tab.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+	}
+	/** Render the log retention days input field. */
+	public function log_retention_render() {
+		$s    = $this->get_settings();
+		$days = isset( $s['log_retention_days'] ) ? intval( $s['log_retention_days'] ) : 30;
+		printf(
+			'<input type="number" min="1" max="365" name="%1$s[log_retention_days]" value="%2$d" class="small-text" />',
+			esc_attr( $this->option_name ),
+			esc_attr( $days )
+		);
+		echo '<p class="description">' . esc_html__( 'Number of days to keep logs (minimum 1).', 'es-football-bypass-for-cloudflare' ) . '</p>';
+	}
+	/** Render the external cron secret token field. */
+	public function cron_secret_render() {
+		$s        = $this->get_settings();
+		$secret   = isset( $s['cron_secret'] ) ? $s['cron_secret'] : '';
+		$interval = isset( $s['check_interval'] ) ? max( 5, min( 60, intval( $s['check_interval'] ) ) ) : 15;
+		$url      = add_query_arg(
+			array(
+				'cfbcolorvivo_cron' => 1,
+				'token'             => $secret,
+			),
+			home_url( '/wp-cron.php' )
+		);
+		echo '<input type="text" name="' . esc_attr( $this->option_name ) . '[cron_secret]" style="width:320px" id="cfbcolorvivo-cron-secret" value="' . esc_attr( $secret ) . '" autocomplete="off" />';
+		echo '<p class="description">' . esc_html__( 'Optional. Use a real server cron when WP-Cron is unreliable (low-traffic sites, hosts that disable it). Leave empty to disable the external endpoint.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+
+		if ( '' !== $secret ) {
+			echo '<p class="description" style="margin-top:10px"><strong>' . esc_html__( 'URL to request:', 'es-football-bypass-for-cloudflare' ) . '</strong></p>';
+			echo '<code style="display:inline-block;padding:6px 8px;background:#f6f7f7;border:1px solid #dcdcde;border-radius:3px;word-break:break-all;user-select:all;max-width:640px;">' . esc_html( $url ) . '</code>';
+
+			$crontab = sprintf( '*/%d * * * * curl -s "%s" > /dev/null 2>&1', $interval, $url );
+			echo '<p class="description" style="margin-top:10px"><strong>' . esc_html__( 'Crontab example (server cron):', 'es-football-bypass-for-cloudflare' ) . '</strong></p>';
+			echo '<code style="display:inline-block;padding:6px 8px;background:#f6f7f7;border:1px solid #dcdcde;border-radius:3px;word-break:break-all;user-select:all;max-width:640px;">' . esc_html( $crontab ) . '</code>';
+		}
+
+		echo '<p class="description" style="margin-top:10px">' . esc_html__( 'To regenerate the token, empty the field and save.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+	}
+
+	/** Render the delete-data-on-uninstall checkbox field. */
+	public function delete_data_on_uninstall_render() {
+		$s       = $this->get_settings();
+		$checked = ! empty( $s['delete_data_on_uninstall'] ) ? 'checked' : '';
+		echo '<label><input type="checkbox" name="' . esc_attr( $this->option_name ) . '[delete_data_on_uninstall]" value="1" ' . esc_attr( $checked ) . '> ' . esc_html__( 'Delete all plugin data when this plugin is uninstalled from Plugins → Installed Plugins → Delete', 'es-football-bypass-for-cloudflare' ) . '</label>';
+		echo '<p class="description">' . esc_html__( 'Only applies at uninstall time, not when the plugin is deactivated. When checked (default), uninstalling removes settings, Cloudflare credentials, DNS cache and logs. Uncheck this if you plan to reinstall later and want to keep the configuration. The scheduled cron and temporary caches are always cleaned up regardless of this setting.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+	}
+
+	/* ================== Render: Operación ================== */
+
+	/**
+	 * Render the "Is there football now?" page: a plain, client-friendly YES/NO
+	 * based on the hayahora.futbol feed — no Cloudflare credentials required,
+	 * no operations possible. Intended as a quick status check that anyone
+	 * (including non-technical clients) can open to know if there are active
+	 * La Liga IP blocks right now.
+	 */
+	public function render_now_page() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$calc       = $this->compute_statuses_from_json();
+		$is_blocked = ( 'SÍ' === ( $calc['general'] ?? 'NO' ) );
+		$last_upd   = ! empty( $calc['last_update'] ) ? $calc['last_update'] : '—';
+		$isps       = isset( $calc['isps_blocked'] ) && is_array( $calc['isps_blocked'] ) ? $calc['isps_blocked'] : array();
+
+		$label     = $is_blocked ? esc_html__( 'YES', 'es-football-bypass-for-cloudflare' ) : esc_html__( 'NO', 'es-football-bypass-for-cloudflare' );
+		$color     = $is_blocked ? '#b32d2e' : '#007017';
+		$subtitle  = $is_blocked
+			? esc_html__( 'Right now there are active IP blocks linked to La Liga matches. Your site may be affected.', 'es-football-bypass-for-cloudflare' )
+			: esc_html__( 'Right now no IP blocks linked to La Liga matches are detected. Everything normal.', 'es-football-bypass-for-cloudflare' );
+
+		echo '<div class="wrap">';
+		echo '<h1>' . esc_html__( 'Is there football now?', 'es-football-bypass-for-cloudflare' ) . '</h1>';
+
+		echo '<div style="background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:40px 30px;margin:20px 0;text-align:center;max-width:720px;">';
+		echo '<div style="font-size:96px;font-weight:700;line-height:1;color:' . esc_attr( $color ) . ';">' . $label . '</div>';
+		echo '<p style="font-size:16px;margin:18px 0 6px 0;">' . $subtitle . '</p>';
+		/* translators: %s is a date/time like "2026-04-17 22:03:45". */
+		echo '<p style="color:#666;font-size:13px;margin:0;">' . sprintf( esc_html__( 'Last update: %s', 'es-football-bypass-for-cloudflare' ), esc_html( $last_upd ) ) . '</p>';
+		if ( $is_blocked && ! empty( $isps ) ) {
+			echo '<p style="color:#666;font-size:13px;margin:8px 0 0 0;">' . esc_html__( 'Affected ISPs:', 'es-football-bypass-for-cloudflare' ) . ' <strong>' . esc_html( implode( ', ', $isps ) ) . '</strong></p>';
+		}
+		echo '</div>';
+
+		echo '<div class="postbox" style="padding:14px;max-width:720px;">';
+		echo '<h3 style="margin:0 0 8px 0;">' . esc_html__( 'Where this data comes from', 'es-football-bypass-for-cloudflare' ) . '</h3>';
+		echo '<p style="margin:0 0 6px 0;">' . sprintf(
+			/* translators: %s is a link to hayahora.futbol. */
+			wp_kses( __( 'The answer above comes from the public feed published by %s, which monitors IP blocks ordered during La Liga football matches in Spain from several Spanish ISPs (DIGI, Movistar, Orange, Masmovil…).', 'es-football-bypass-for-cloudflare' ), array() ),
+			'<a href="https://hayahora.futbol/" target="_blank" rel="noopener">hayahora.futbol</a>'
+		) . '</p>';
+		echo '<p style="margin:0;color:#666;font-size:13px;">' . esc_html__( 'The feed URL is https://hayahora.futbol/estado/data.json and is consulted automatically each time this page is opened.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+		echo '</div>';
+
+		$plugin_data = get_plugin_data( CFBCOLORVIVO_PLUGIN_FILE );
+		echo '<p style="text-align:right;color:#999;font-size:12px;margin-top:20px;max-width:720px;">' . esc_html( 'Version ' . $plugin_data['Version'] ) . '</p>';
+		echo '</div>';
+	}
+
+	/** Render the main operation page with DNS table and action buttons. */
+	public function render_main_page() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$s        = $this->get_settings();
+		$domain   = $this->get_site_domain();
+		$is_local = $this->is_local_domain( $domain );
+
+		if ( $is_local ) {
+			echo '<div class="wrap"><h1>ES Football Bypass — Operación</h1>';
+			echo '<div class="notice notice-warning" style="padding:12px;">';
+			echo '<p><strong>' . esc_html__( 'Local environment detected', 'es-football-bypass-for-cloudflare' ) . '</strong></p>';
+			echo '<p>' . sprintf(
+				/* translators: %s is the detected domain */
+				esc_html__( 'The current domain is %s, which corresponds to a local environment or an IP address. This plugin needs a public domain accessible from the Internet to work correctly (DNS resolution, Cloudflare API and block checking).', 'es-football-bypass-for-cloudflare' ),
+				'<code>' . esc_html( $domain ) . '</code>'
+			) . '</p>';
+			echo '<p>' . esc_html__( 'Install the plugin on your production or staging site with a real domain to use it.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+			echo '</div>';
+			echo '<p style="margin-top:15px;"><a href="' . esc_url( admin_url( 'admin.php?page=cfbcolorvivo-settings' ) ) . '" class="button">' . esc_html__( 'Go to Settings', 'es-football-bypass-for-cloudflare' ) . '</a></p>';
+			$plugin_data = get_plugin_data( CFBCOLORVIVO_PLUGIN_FILE );
+			echo '<p style="text-align:right;color:#999;font-size:12px;margin-top:20px;">' . esc_html( 'Version ' . $plugin_data['Version'] ) . '</p>';
+			echo '</div>';
+			return;
+		}
+
+		$sync_trace   = array();
+		$dns_throttle = (int) apply_filters( 'cfbcolorvivo_oppage_dns_throttle_seconds', MINUTE_IN_SECONDS );
+		$can_sync     = ! empty( $s['cloudflare_zone_id'] ) && ! empty( $s['cloudflare_api_key'] );
+		// Evitar una llamada bloqueante a la API de Cloudflare en cada carga de la página:
+		// sincronizar como mucho una vez por ventana. El botón "Probar conexión" sigue forzando refresco.
+		if ( $can_sync && $dns_throttle > 0 && get_transient( 'cfbcolorvivo_oppage_dns_throttle' ) ) {
+			$can_sync = false;
+		}
+		if ( $can_sync ) {
+			set_transient( 'cfbcolorvivo_oppage_dns_throttle', 1, $dns_throttle );
+			$records = $this->fetch_dns_records( array( 'A', 'AAAA', 'CNAME' ), $sync_trace );
+			if ( ! empty( $records ) ) {
+				$this->persist_dns_cache( $records );
+				$this->log_event(
+					'manual',
+					'Vista Operación: caché DNS sincronizada',
+					array(
+						'usuario'   => $this->current_user_label(),
+						'registros' => count( $records ),
+					)
+				);
+				$s = $this->get_settings();
+			} elseif ( ! empty( $sync_trace ) ) {
+				$this->log_event(
+					'manual',
+					'Vista Operación: no se pudo sincronizar DNS',
+					array(
+						'usuario' => $this->current_user_label(),
+						'detalle' => $sync_trace,
+					)
+				);
+			}
+		}
+		$cache        = isset( $s['dns_records_cache'] ) ? $s['dns_records_cache'] : array();
+		$sel          = isset( $s['selected_records'] ) ? $s['selected_records'] : array();
+		$nonce        = wp_create_nonce( 'cfbcolorvivo_nonce' );
+		$domain       = $this->get_site_domain();
+		$check_url    = 'https://hayahora.futbol/#comprobador&domain=' . rawurlencode( $domain );
+		$is_advanced  = ( $s['ui_mode'] ?? 'simple' ) === 'advanced';
+
+		echo '<div class="wrap"><h1>ES Football Bypass — Operación</h1>';
+
+		// Intro solicitada.
+		echo '<p style="max-width:960px;margin-top:6px">';
+		echo 'ES Football Bypass es un plugin gratis creado por <a href="' . esc_url( 'https://colorvivo.com' ) . '" target="_blank" rel="noopener">Color Vivo</a> y ';
+		echo '<a href="' . esc_url( 'https://carrero.es' ) . '" target="_blank" rel="noopener">David Carrero Fernandez-Baillo</a> para ayudar a que si tu WordPress se ve afectado por los bloqueos indiscriminados de la liga ';
+		echo 'puedas desactivar el CDN temporalmente. Sabemos que no es la mejor solución pero al menos no perdemos visitas.';
+		echo '</p>';
+
+		// Layout a 2 columnas.
+		echo '<div class="cfbcolorvivo-flex" style="display:flex;gap:20px;align-items:flex-start;">';
+
+		// Columna izquierda (principal).
+		echo '<div class="cfbcolorvivo-main" style="flex:1;min-width:0;">';
+
+		$auth_label = array(
+			'global'        => 'Global Key',
+			'token'         => 'Token usuario',
+			'account_token' => 'Token cuenta',
+		);
+		echo '<p>Zona: <code>' . esc_html( $this->mask( $s['cloudflare_zone_id'] ) ) . '</code> · Auth: <strong>' . esc_html( $auth_label[ $s['auth_type'] ] ?? $s['auth_type'] ) . '</strong> · ';
+		echo 'Dominio: <strong>' . esc_html( $domain ) . '</strong> — <a href="' . esc_url( $check_url ) . '" target="_blank" rel="noopener">Abrir comprobador</a></p>';
+
+		echo '<h2 class="title">1. Registros DNS que gestiona el plugin</h2>';
+		echo '<p class="description">Marca solo los registros cuyo proxy debe conmutar el plugin durante los bloqueos y pulsa <strong>Guardar selección</strong>. ';
+		echo 'Los registros que dejes sin marcar no se tocan nunca. Si solo quieres gestionar los <code>A</code>, usa el botón <em>Solo A</em>.</p>';
+		echo '<div id="cfbcolorvivo-dns-list">';
+		if ( empty( $cache ) ) {
+			echo '<p>No hay registros en caché. Pulsa "Recargar desde Cloudflare".</p>';
+		} else {
+			$this->echo_dns_table( $cache, $sel );
+		}
+		echo '</div>';
+
+		echo '<div class="cfbcolorvivo-actions" id="cfbcolorvivo-actions">';
+		echo '<div class="cfbcolorvivo-actionrow">';
+		echo '<button class="button button-primary" id="cfbcolorvivo-save-selection">Guardar selección</button> ';
+		echo '<button class="button" id="cfbcolorvivo-test" data-nonce="' . esc_attr( $nonce ) . '">Recargar desde Cloudflare</button>';
+		echo '<span class="cfbcolorvivo-hint">Guarda qué registros gestiona el plugin. Recargar trae la lista actualizada de tu zona sin perder lo marcado.</span>';
+		echo '</div>';
+		echo '</div>';
+
+		echo '<h2 class="title" style="margin-top:22px;">2. Acciones manuales</h2>';
+		echo '<p class="description">El plugin actúa solo automáticamente. Estos botones son para intervenir a mano y se aplican <strong>únicamente a los registros guardados arriba</strong>.</p>';
+		echo '<div class="cfbcolorvivo-actions">';
+		echo '<div class="cfbcolorvivo-actionrow">';
+		echo '<button class="button" id="cfbcolorvivo-check">Comprobar bloqueos ahora</button> ';
+		echo '<button class="button cfbcolorvivo-danger" id="cfbcolorvivo-off">Forzar Proxy OFF (DNS Only)</button> ';
+		echo '<button class="button" id="cfbcolorvivo-on">Forzar Proxy ON (CDN)</button>';
+		echo '</div>';
+		echo '</div>';
+
+		// Consola técnica solo en modo avanzado; en simple se muestra un mensaje inline minimalista.
+		if ( $is_advanced ) {
+			echo '<div id="cfbcolorvivo-console" class="notice notice-info" style="padding:10px;white-space:pre-wrap;line-height:1.3">';
+			echo '<strong>Consola:</strong>';
+			echo '<div id="cfbcolorvivo-warn" style="color:#b32d2e;font-weight:600;margin:6px 0 0 0;display:none;">⏳ Espera unos segundos para que se complete la operación…</div>';
+			echo '<pre id="cfbcolorvivo-console-pre" style="margin:6px 0 0 0;white-space:pre-wrap;"></pre>';
+			echo '</div>';
+		} else {
+			echo '<div id="cfbcolorvivo-console" class="notice notice-info" style="padding:10px;line-height:1.3">';
+			echo '<div id="cfbcolorvivo-warn" style="color:#b32d2e;font-weight:600;margin:0;display:none;">⏳ Procesando…</div>';
+			echo '<div id="cfbcolorvivo-console-simple" style="margin:0;color:#1d2327;"></div>';
+			echo '<pre id="cfbcolorvivo-console-pre" style="display:none;"></pre>';
+			echo '</div>';
+		}
+
+		// No forzar re-resolución DNS en cada render; la caché de 60 s es suficiente y el
+		// enlace "Actualizar IPs" permite refrescar bajo demanda.
+		$calc          = $this->compute_statuses_from_json( false );
+		$general_si_no = ( 'SÍ' === $calc['general'] ) ? 'SI' : 'NO';
+		$domain_si_no  = ( 'SÍ' === $calc['domain'] ) ? 'SI' : 'NO';
+		$ips_str       = ! empty( $calc['domain_ips'] ) ? esc_html( implode( ', ', $calc['domain_ips'] ) ) : '—';
+		$last_update   = $calc['last_update'] ? $calc['last_update'] : '—';
+
+		echo '<div class="cfbcolorvivo-summary" style="margin-top:10px">';
+		echo '<p><strong>Hay bloqueos en algunas IPs ahora:</strong> <span id="cfbcolorvivo-summary-general">' . esc_html( $general_si_no ) . '</span></p>';
+		echo '<p><strong>¿Está este dominio ' . esc_html( $domain ) . ' bloqueado?</strong> <span id="cfbcolorvivo-summary-domain">' . esc_html( $domain_si_no ) . '</span> (IPs: <span id="cfbcolorvivo-summary-ips">' . esc_html( $ips_str ) . '</span> <a href="#" id="cfbcolorvivo-refresh-ips" class="button-link">Actualizar IPs</a>)</p>';
+		echo '<p><strong>Última actualización (JSON de IPs):</strong> <span id="cfbcolorvivo-summary-lastupdate">' . esc_html( $last_update ) . '</span></p>';
+		echo '</div>';
+
+		if ( $is_advanced ) {
+			echo '<h2 class="title" style="margin-top:20px;">Diagnóstico del feed hayahora.futbol</h2>';
+			echo '<div id="cfbcolorvivo-feed-diag" class="postbox" style="padding:12px;">';
+			$this->echo_feed_diagnostics( $this->get_feed_diagnostics() );
+			echo '</div>';
+			echo '<p style="margin-top:8px">';
+			echo '<button class="button" id="cfbcolorvivo-refresh-diag">Refrescar diagnóstico</button> ';
+			echo '<button class="button" id="cfbcolorvivo-diag">Diagnóstico WP-Cron</button> ';
+			echo '<button class="button cfbcolorvivo-danger" id="cfbcolorvivo-clear-cache">Borrar caché local (data.json)</button>';
+			echo '</p>';
+		}
+
+		echo '</div>'; // .cfbcolorvivo-main
+
+		// Columna derecha (sidebar).
+		echo '<aside class="cfbcolorvivo-aside" style="width:320px;max-width:100%;">';
+
+		echo '<div class="postbox" style="padding:12px;">';
+		echo '<h3 style="margin:0 0 10px 0;">#LaLigaGate</h3>';
+		echo '<ul style="margin:0;padding-left:18px;">';
+		echo '<li><a href="' . esc_url( 'https://hayahora.futbol/' ) . '" target="_blank" rel="noopener">Hay ahora fútbol</a></li>';
+		echo '<li><a href="' . esc_url( 'https://laligagate.com/' ) . '" target="_blank" rel="noopener">Web La Liga Gate</a></li>';
+		echo '<li><a href="' . esc_url( 'https://x.com/laligagate' ) . '" target="_blank" rel="noopener">Sigue en X @LaLigaGate</a></li>';
+		echo '</ul>';
+		echo '</div>';
+
+		echo '<div class="postbox" style="padding:12px;">';
+		echo '<h3 style="margin:0 0 10px 0;">Servidores VPN</h3>';
+		echo '<ul style="margin:0;padding-left:18px;">';
+		echo '<li><a href="' . esc_url( 'https://revistacloud.com/protonvpn' ) . '" target="_blank" rel="noopener">VPN Proton (aff)</a></li>';
+		echo '<li><a href="' . esc_url( 'https://revistacloud.com/nvpn' ) . '" target="_blank" rel="noopener">NordVPN (aff)</a></li>';
+		echo '</ul>';
+		echo '</div>';
+
+		echo '<div class="postbox" style="padding:12px;">';
+		echo '<h3 style="margin:0 0 10px 0;">Noticias y actualidad</h3>';
+		echo '<ul style="margin:0;padding-left:18px;">';
+		echo '<li><a href="' . esc_url( 'https://revistacloud.com' ) . '" target="_blank" rel="noopener">Actualidad Revista Cloud</a></li>';
+		echo '<li><a href="' . esc_url( 'https://redes-sociales.com' ) . '" target="_blank" rel="noopener">Noticias Redes Sociales</a></li>';
+		echo '<li><a href="' . esc_url( 'https://wpdirecto.com' ) . '" target="_blank" rel="noopener">WordPress Directo</a></li>';
+		echo '</ul>';
+		echo '</div>';
+
+		echo '<div class="postbox" style="padding:12px;">';
+		echo '<h3 style="margin:0 0 10px 0;">Enlaces Seguridad</h3>';
+		echo '<ul style="margin:0;padding-left:18px;">';
+		echo '<li><a href="' . esc_url( 'https://revistacloud.com/backblaze' ) . '" target="_blank" rel="noopener">Backup para tu Ordenador (aff)</a></li>';
+		echo '<li><a href="' . esc_url( 'https://revistacloud.com/1passwordes' ) . '" target="_blank" rel="noopener">Gestor de contraseñas (aff)</a></li>';
+		echo '<li><a href="' . esc_url( 'https://opensecurity.es' ) . '" target="_blank" rel="noopener">Noticias OpenSecurity</a></li>';
+		echo '</ul>';
+		echo '<div style="text-align:center;margin-top:12px;padding-top:10px;border-top:1px solid #e2e2e2;">';
+		echo '<p style="font-size:11px;color:#666;margin:0;">Desarrollado por <a href="' . esc_url( 'https://carrero.es' ) . '" target="_blank" rel="noopener">David Carrero Fernandez-Baillo</a></p>';
+		echo '</div>';
+		echo '</div>';
+
+		echo '</aside>';
+
+		echo '</div>'; // .cfbcolorvivo-flex
+		$plugin_data = get_plugin_data( CFBCOLORVIVO_PLUGIN_FILE );
+		echo '<p style="text-align:right;color:#999;font-size:12px;margin-top:20px;">' . esc_html( 'Version ' . $plugin_data['Version'] ) . '</p>';
+		echo '</div>';
+	}
+
+	/**
+	 * Output the DNS records table with selection checkboxes.
+	 *
+	 * @param array $records  DNS record arrays to display.
+	 * @param array $selected Currently selected record IDs.
+	 */
+	private function echo_dns_table( $records, $selected ) {
+		$selected  = (array) $selected;
+		$domain    = $this->get_site_domain();
+		$total     = count( $records );
+		$sel_count = 0;
+		$types     = array();
+		foreach ( $records as $r ) {
+			if ( in_array( $r['id'] ?? '', $selected, true ) ) {
+				++$sel_count;
+			}
+			$rtype = $r['type'] ?? '';
+			if ( $rtype && ! in_array( $rtype, $types, true ) ) {
+				$types[] = $rtype;
+			}
+		}
+		sort( $types );
+
+		// Barra de filtros y selección rápida: resuelve el caso "solo quiero gestionar los A".
+		echo '<div class="cfbcolorvivo-tabletools">';
+		echo '<div class="cfbcolorvivo-toolgroup"><span class="cfbcolorvivo-toollabel">Mostrar:</span>';
+		echo '<button type="button" class="button button-small cfbcolorvivo-filter is-active" data-cfb-filter="all">Todos <span class="cfbcolorvivo-badge">' . esc_html( (string) $total ) . '</span></button>';
+		foreach ( $types as $t ) {
+			$n = 0;
+			foreach ( $records as $r ) {
+				if ( ( $r['type'] ?? '' ) === $t ) {
+					++$n;
+				}
+			}
+			echo '<button type="button" class="button button-small cfbcolorvivo-filter" data-cfb-filter="' . esc_attr( $t ) . '">' . esc_html( $t ) . ' <span class="cfbcolorvivo-badge">' . esc_html( (string) $n ) . '</span></button>';
+		}
+		echo '</div>';
+		echo '<div class="cfbcolorvivo-toolgroup"><span class="cfbcolorvivo-toollabel">Marcar:</span>';
+		echo '<button type="button" class="button button-small" data-cfb-select="all" title="Marca todos los registros visibles con el filtro actual">Todo lo visible</button>';
+		if ( in_array( 'A', $types, true ) ) {
+			echo '<button type="button" class="button button-small" data-cfb-select="A" title="Marca solo los registros A y desmarca el resto (ignora CNAME y AAAA)">Solo A</button>';
+		}
+		if ( in_array( 'A', $types, true ) && in_array( 'AAAA', $types, true ) ) {
+			echo '<button type="button" class="button button-small" data-cfb-select="A,AAAA" title="Marca los registros A y AAAA y desmarca el resto (ignora CNAME)">A + AAAA</button>';
+		}
+		echo '<button type="button" class="button button-small" data-cfb-select="none" title="Desmarca todos los registros visibles con el filtro actual">Desmarcar</button>';
+		echo '</div>';
+		echo '</div>';
+
+		echo '<table class="widefat striped cfbcolorvivo-dns-table"><thead><tr>';
+		echo '<th class="check-column"><input type="checkbox" id="cfbcolorvivo-check-all" title="Marcar o desmarcar todos los registros visibles"></th>';
+		echo '<th>Nombre</th><th>Tipo</th><th>Contenido</th><th>Proxied</th><th>TTL</th>';
+		echo '</tr></thead><tbody>';
+		foreach ( $records as $r ) {
+			$id      = $r['id'] ?? '';
+			$name    = $r['name'] ?? '';
+			$type    = $r['type'] ?? '';
+			$cont    = $r['content'] ?? '';
+			$px      = array_key_exists( 'proxied', $r ) ? $r['proxied'] : null;
+			$ttl     = $r['ttl'] ?? '';
+			$is_sel  = in_array( $id, $selected, true );
+			$is_site = ( $domain === $name || 'www.' . $domain === $name );
+			$row_cls = 'cfbcolorvivo-row' . ( $is_sel ? ' is-selected' : '' );
+			$cb_id   = 'cfbcolorvivo-rec-' . md5( $id );
+			echo '<tr class="' . esc_attr( $row_cls ) . '" data-cfb-type="' . esc_attr( $type ) . '">';
+			echo '<td class="check-column"><input type="checkbox" id="' . esc_attr( $cb_id ) . '" name="' . esc_attr( $this->option_name ) . '[selected_records][]" value="' . esc_attr( $id ) . '"' . ( $is_sel ? ' checked' : '' ) . '></td>';
+			echo '<td><label for="' . esc_attr( $cb_id ) . '"><strong>' . esc_html( $name ) . '</strong></label>';
+			if ( $is_site ) {
+				echo ' <span class="cfbcolorvivo-tag is-site">tu dominio</span>';
+			}
+			if ( null === $px ) {
+				echo ' <span class="cfbcolorvivo-tag is-muted" title="Este tipo de registro no puede pasar por el proxy de Cloudflare">no proxiable</span>';
+			}
+			echo '</td>';
+			echo '<td><code>' . esc_html( $type ) . '</code></td>';
+			echo '<td class="cfbcolorvivo-content">' . esc_html( $cont ) . '</td>';
+			if ( null === $px ) {
+				echo '<td><span class="cfbcolorvivo-pill is-na">&mdash;</span></td>';
+			} elseif ( $px ) {
+				echo '<td><span class="cfbcolorvivo-pill is-on">Proxied (CDN)</span></td>';
+			} else {
+				echo '<td><span class="cfbcolorvivo-pill is-off">DNS Only</span></td>';
+			}
+			echo '<td>' . esc_html( 1 === (int) $ttl ? 'Auto' : (string) $ttl ) . '</td>';
+			echo '</tr>';
+		}
+		echo '</tbody></table>';
+
+		echo '<p class="cfbcolorvivo-count"><span id="cfbcolorvivo-sel-count">' . esc_html( (string) $sel_count ) . '</span> de ' . esc_html( (string) $total ) . ' registros seleccionados.';
+		echo ' <span id="cfbcolorvivo-dirty" class="cfbcolorvivo-dirty" hidden>Cambios sin guardar &mdash; pulsa <strong>Guardar selecci&oacute;n</strong>.</span></p>';
+	}
+
+	/* ================== Verificación rápida (para settings) ================== */
+
+	/**
+	 * Build the HTTP headers array for Cloudflare API requests.
+	 *
+	 * @param array $settings Plugin settings with auth credentials.
+	 * @return array HTTP headers for the API request.
+	 */
+	private function api_headers( $settings ) {
+		$h = array( 'Content-Type' => 'application/json' );
+		if ( 'global' === $settings['auth_type'] ) {
+			$h['X-Auth-Email'] = $settings['cloudflare_email'];
+			$h['X-Auth-Key']   = $settings['cloudflare_api_key'];
+		} else {
+			$h['Authorization'] = 'Bearer ' . $settings['cloudflare_api_key'];
+		}
+		return $h;
+	}
+
+	/**
+	 * Test Cloudflare API connectivity and permissions with the given settings.
+	 *
+	 * @param array $settings Plugin settings to test.
+	 * @param array $trace    Trace log array, passed by reference.
+	 * @return bool True if connection and permissions are valid.
+	 */
+	private function quick_settings_test( $settings, &$trace ) {
+		if ( empty( $settings['cloudflare_api_key'] ) ) {
+			$this->trace( $trace, 'Falta API Key/Token.' );
+			return false; }
+		if ( empty( $settings['cloudflare_zone_id'] ) ) {
+			$this->trace( $trace, 'Falta Zone ID.' );
+			return false; }
+		if ( 'global' === $settings['auth_type'] && empty( $settings['cloudflare_email'] ) ) {
+			$this->trace( $trace, 'Falta email para Global API Key.' );
+			return false; }
+		if ( 'account_token' === $settings['auth_type'] && empty( $settings['cloudflare_account_id'] ) ) {
+			$this->trace( $trace, 'Falta Account ID para token de cuenta.' );
+			return false; }
+
+		$headers = $this->api_headers( $settings );
+
+		if ( 'account_token' === $settings['auth_type'] ) {
+			$url = 'https://api.cloudflare.com/client/v4/accounts/' . rawurlencode( $settings['cloudflare_account_id'] ) . '/tokens/verify';
+			$this->trace( $trace, 'GET ' . $url );
+			$r = wp_remote_get(
+				$url,
+				array(
+					'headers' => $headers,
+					'timeout' => 20,
+				)
+			);
+			if ( is_wp_error( $r ) ) {
+				$this->trace( $trace, 'WP_Error verify: ' . $r->get_error_message() );
+				return false; }
+			$code  = wp_remote_retrieve_response_code( $r );
+			$body  = wp_remote_retrieve_body( $r );
+			$json  = json_decode( $body, true );
+			$cf_ray = wp_remote_retrieve_header( $r, 'cf-ray' );
+			$this->trace( $trace, 'verify HTTP ' . $code . ' success=' . ( ( ! empty( $json['success'] ) ) ? 'true' : 'false' ) . ' cf-ray=' . ( $cf_ray ? $cf_ray : '—' ) );
+			if ( 200 !== $code || empty( $json['success'] ) ) {
+				$err = isset( $json['errors'][0]['message'] ) ? $json['errors'][0]['message'] : 'verify failed';
+				$this->trace( $trace, 'Error: ' . $err );
+				return false;
+			}
+		} elseif ( 'token' === $settings['auth_type'] ) {
+			$url = 'https://api.cloudflare.com/client/v4/user/tokens/verify';
+			$this->trace( $trace, 'GET ' . $url );
+			$r = wp_remote_get(
+				$url,
+				array(
+					'headers' => $headers,
+					'timeout' => 20,
+				)
+			);
+			if ( is_wp_error( $r ) ) {
+				$this->trace( $trace, 'WP_Error verify: ' . $r->get_error_message() );
+				return false; }
+			$code  = wp_remote_retrieve_response_code( $r );
+			$body  = wp_remote_retrieve_body( $r );
+			$json  = json_decode( $body, true );
+			$cf_ray = wp_remote_retrieve_header( $r, 'cf-ray' );
+			$this->trace( $trace, 'verify HTTP ' . $code . ' success=' . ( ( ! empty( $json['success'] ) ) ? 'true' : 'false' ) . ' cf-ray=' . ( $cf_ray ? $cf_ray : '—' ) );
+			if ( 200 !== $code || empty( $json['success'] ) ) {
+				$err = isset( $json['errors'][0]['message'] ) ? $json['errors'][0]['message'] : 'verify failed';
+				$this->trace( $trace, 'Error: ' . $err );
+				return false;
+			}
+		} else {
+			$url = 'https://api.cloudflare.com/client/v4/user';
+			$this->trace( $trace, 'GET ' . $url );
+			$r = wp_remote_get(
+				$url,
+				array(
+					'headers' => $headers,
+					'timeout' => 20,
+				)
+			);
+			if ( is_wp_error( $r ) ) {
+				$this->trace( $trace, 'WP_Error user: ' . $r->get_error_message() );
+				return false; }
+			$code  = wp_remote_retrieve_response_code( $r );
+			$body  = wp_remote_retrieve_body( $r );
+			$json  = json_decode( $body, true );
+			$cf_ray = wp_remote_retrieve_header( $r, 'cf-ray' );
+			$this->trace( $trace, 'user HTTP ' . $code . ' success=' . ( ( ! empty( $json['success'] ) ) ? 'true' : 'false' ) . ' cf-ray=' . ( $cf_ray ? $cf_ray : '—' ) );
+			if ( 200 !== $code || empty( $json['success'] ) ) {
+				$this->trace( $trace, 'Error autenticando Global Key.' );
+				return false; }
+		}
+
+		$url = 'https://api.cloudflare.com/client/v4/zones/' . rawurlencode( $settings['cloudflare_zone_id'] );
+		$this->trace( $trace, 'GET ' . $url );
+		$r = wp_remote_get(
+			$url,
+			array(
+				'headers' => $headers,
+				'timeout' => 20,
+			)
+		);
+		if ( is_wp_error( $r ) ) {
+			$this->trace( $trace, 'WP_Error zone: ' . $r->get_error_message() );
+			return false; }
+		$code      = wp_remote_retrieve_response_code( $r );
+		$body      = wp_remote_retrieve_body( $r );
+		$json      = json_decode( $body, true );
+		$cf_ray     = wp_remote_retrieve_header( $r, 'cf-ray' );
+		$zone_name = is_array( $json ) && ! empty( $json['result']['name'] ) ? $json['result']['name'] : '?';
+		$this->trace( $trace, 'zone HTTP ' . $code . ' success=' . ( ( ! empty( $json['success'] ) ) ? 'true' : 'false' ) . ' name=' . $zone_name . ' cf-ray=' . ( $cf_ray ? $cf_ray : '—' ) );
+		if ( 200 !== $code || empty( $json['success'] ) ) {
+			$this->trace( $trace, 'Error accediendo a la zona (ID o permisos).' );
+			return false; }
+
+		$site_domain = $this->get_site_domain();
+		if ( ! $this->domain_matches_zone( $site_domain, $zone_name ) ) {
+			$this->trace( $trace, 'Zone mismatch: dominio=' . $site_domain . ' zona=' . $zone_name );
+			return false;
+		}
+
+		$url = 'https://api.cloudflare.com/client/v4/zones/' . rawurlencode( $settings['cloudflare_zone_id'] ) . '/dns_records?per_page=50&page=1';
+		$this->trace( $trace, 'GET ' . $url );
+		$r = wp_remote_get(
+			$url,
+			array(
+				'headers' => $headers,
+				'timeout' => 30,
+			)
+		);
+		if ( is_wp_error( $r ) ) {
+			$this->trace( $trace, 'WP_Error dns: ' . $r->get_error_message() );
+			return false; }
+		$code  = wp_remote_retrieve_response_code( $r );
+		$body  = wp_remote_retrieve_body( $r );
+		$json  = json_decode( $body, true );
+		$cf_ray = wp_remote_retrieve_header( $r, 'cf-ray' );
+		$this->trace( $trace, 'dns HTTP ' . $code . ' success=' . ( ( ! empty( $json['success'] ) ) ? 'true' : 'false' ) . ' count=' . ( isset( $json['result'] ) ? count( $json['result'] ) : 0 ) . ' cf-ray=' . ( $cf_ray ? $cf_ray : '—' ) );
+		if ( 200 !== $code || empty( $json['success'] ) ) {
+			$err = isset( $json['errors'][0]['message'] ) ? $json['errors'][0]['message'] : 'dns list failed';
+			$this->trace( $trace, 'Error DNS: ' . $err );
+			return false;
+		}
+		$this->trace( $trace, 'Conexion OK y lectura de DNS disponible.' );
+		return true;
+	}
+
+	/* ================== Cloudflare: lectura/edición ================== */
+
+	/**
+	 * Fetch DNS records from the Cloudflare API, paginated.
+	 *
+	 * @param array      $allowed_types DNS record types to include.
+	 * @param array|null $trace         Optional trace log array, passed by reference.
+	 * @return array Fetched DNS record arrays.
+	 */
+	private function fetch_dns_records( array $allowed_types = array( 'A', 'AAAA', 'CNAME' ), &$trace = null ) {
+		$s = $this->get_settings();
+		if ( empty( $s['cloudflare_api_key'] ) || empty( $s['cloudflare_zone_id'] ) ) {
+			$this->trace( $trace, 'CF API DNS: falta API key o Zone ID.' );
+			return array(); }
+		if ( 'global' === $s['auth_type'] && empty( $s['cloudflare_email'] ) ) {
+			$this->trace( $trace, 'CF API DNS: falta email para Global API Key.' );
+			return array(); }
+		$headers = $this->api_headers( $s );
+
+		$page        = 1;
+		$per_page    = 100;
+		$accum       = array();
+		$max_pages   = 50;
+		$total_pages = 1;
+		do {
+			$url = 'https://api.cloudflare.com/client/v4/zones/' . rawurlencode( $s['cloudflare_zone_id'] ) . '/dns_records?per_page=' . $per_page . '&page=' . $page;
+			$this->trace( $trace, 'GET ' . $url );
+			$r = wp_remote_get(
+				$url,
+				array(
+					'headers' => $headers,
+					'timeout' => 30,
+				)
+			);
+			if ( is_wp_error( $r ) ) {
+				$this->trace( $trace, 'CF API DNS WP_Error: ' . $r->get_error_message() );
+				break; }
+			$code  = wp_remote_retrieve_response_code( $r );
+			$body  = wp_remote_retrieve_body( $r );
+			$cf_ray = wp_remote_retrieve_header( $r, 'cf-ray' );
+			if ( 200 !== $code ) {
+				$this->trace( $trace, 'CF API DNS HTTP ' . $code . ' cf-ray=' . ( $cf_ray ? $cf_ray : '—' ) . ' body: ' . substr( (string) $body, 0, 300 ) );
+				break; }
+			if ( ! $body ) {
+				$this->trace( $trace, 'CF API DNS: cuerpo vacio.' );
+				break; }
+			$json = json_decode( $body, true );
+			if ( ! is_array( $json ) ) {
+				$this->trace( $trace, 'CF API DNS: JSON invalido: ' . substr( (string) $body, 0, 300 ) );
+				break; }
+			if ( empty( $json['success'] ) ) {
+				$this->trace( $trace, 'CF API DNS: success=false err=' . substr( wp_json_encode( $json['errors'] ), 0, 300 ) );
+				break; }
+			if ( ! isset( $json['result'] ) ) {
+				$this->trace( $trace, 'CF API DNS: sin result.' );
+				break; }
+
+			$ri = $json['result_info'] ?? null;
+			if ( $ri && isset( $ri['total_count'], $ri['per_page'] ) && intval( $ri['per_page'] ) > 0 ) {
+				$total_pages = (int) ceil( $ri['total_count'] / $ri['per_page'] );
+				$this->trace( $trace, 'result_info: count=' . ( isset( $ri['count'] ) ? $ri['count'] : '?' ) . ' total=' . $ri['total_count'] . ' per_page=' . $ri['per_page'] . ' page=' . $ri['page'] . ' total_pages=' . $total_pages );
+			} else {
+				$this->trace( $trace, 'result_info no disponible; se asume 1 pagina.' );
+				$total_pages = $page;
+			}
+
+			foreach ( $json['result'] as $rr ) {
+				$t = isset( $rr['type'] ) ? strtoupper( $rr['type'] ) : '';
+				if ( ! in_array( $t, $allowed_types, true ) ) {
+					continue;
+				}
+				$accum[] = array(
+					'id'      => (string) ( $rr['id'] ?? '' ),
+					'name'    => (string) ( $rr['name'] ?? '' ),
+					'type'    => $t,
+					'content' => (string) ( $rr['content'] ?? '' ),
+					'proxied' => array_key_exists( 'proxied', $rr ) ? (bool) $rr['proxied'] : null,
+					'ttl'     => intval( $rr['ttl'] ?? 1 ),
+				);
+			}
+			$this->trace( $trace, 'Pagina ' . $page . ' leida. Acumulados=' . count( $accum ) );
+			++$page;
+		} while ( $page <= $total_pages && $page <= $max_pages );
+
+		return $accum;
+	}
+
+	/**
+	 * Update the proxy status of a single DNS record via the Cloudflare API.
+	 *
+	 * @param string $record_id  Cloudflare DNS record ID.
+	 * @param bool   $proxied_on Whether to enable proxy (true) or DNS only (false).
+	 * @param bool   $detailed   Whether to return detailed result array.
+	 * @return bool|array True/false on success/failure, or detailed array.
+	 */
+	private function update_record_proxy_status( $record_id, $proxied_on, $detailed = false ) {
+		$s = $this->get_settings();
+		if ( empty( $s['cloudflare_api_key'] ) || empty( $s['cloudflare_zone_id'] ) ) {
+			return $detailed ? array(
+				'success' => false,
+				'error'   => 'Falta API key o Zone ID',
+			) : false;
+		}
+		if ( 'global' === $s['auth_type'] && empty( $s['cloudflare_email'] ) ) {
+			return $detailed ? array(
+				'success' => false,
+				'error'   => 'Falta email para Global API Key',
+			) : false;
+		}
+
+		if ( empty( $s['dns_records_cache'] ) ) {
+			$this->persist_dns_cache( $this->fetch_dns_records() );
+			$s = $this->get_settings(); }
+		$existing = null;
+		foreach ( (array) $s['dns_records_cache'] as $r ) {
+			if ( ! empty( $r['id'] ) && $r['id'] === $record_id ) {
+				$existing = $r;
+				break; }
+		}
+		if ( ! $existing ) {
+			$this->persist_dns_cache( $this->fetch_dns_records() );
+			$s = $this->get_settings();
+			foreach ( (array) $s['dns_records_cache'] as $r ) {
+				if ( ! empty( $r['id'] ) && $r['id'] === $record_id ) {
+					$existing = $r;
+					break; }
+			}
+			if ( ! $existing ) {
+				return $detailed ? array(
+					'success' => false,
+					'error'   => 'Registro no encontrado en caché tras refresco',
+				) : false;
+			}
+		}
+
+		$type = strtoupper( $existing['type'] ?? '' );
+		if ( ! in_array( $type, array( 'A', 'AAAA', 'CNAME' ), true ) ) {
+			return $detailed ? array(
+				'success' => false,
+				'error'   => "Tipo $type no admite Proxy",
+				'record'  => $existing,
+			) : false;
+		}
+		if ( array_key_exists( 'proxied', $existing ) && (bool) $existing['proxied'] === (bool) $proxied_on ) {
+			return $detailed ? array(
+				'success' => true,
+				'skipped' => true,
+				'record'  => $existing,
+			) : true;
+		}
+
+		$headers = $this->api_headers( $s );
+		$url     = 'https://api.cloudflare.com/client/v4/zones/' . rawurlencode( $s['cloudflare_zone_id'] ) . '/dns_records/' . rawurlencode( $record_id );
+		$ttl     = intval( $existing['ttl'] ?? 1 );
+		if ( $proxied_on ) {
+			$ttl = 1;
+		}
+		$payload = array(
+			'type'    => $type ? $type : 'A',
+			'name'    => $existing['name'] ?? '',
+			'content' => $existing['content'] ?? '',
+			'ttl'     => $ttl,
+			'proxied' => (bool) $proxied_on,
+		);
+
+		$r = wp_remote_request(
+			$url,
+			array(
+				'method'  => 'PUT',
+				'headers' => $headers,
+				'timeout' => 30,
+				'body'    => wp_json_encode( $payload ),
+			)
+		);
+		if ( is_wp_error( $r ) ) {
+			return $detailed ? array(
+				'success' => false,
+				'error'   => $r->get_error_message(),
+				'record'  => $existing,
+			) : false;
+		}
+
+		$code = wp_remote_retrieve_response_code( $r );
+		$body = wp_remote_retrieve_body( $r );
+		$json = json_decode( $body, true );
+		if ( 200 !== $code || ! is_array( $json ) || empty( $json['success'] ) ) {
+			$err = 'Error Cloudflare';
+			if ( is_array( $json ) && ! empty( $json['errors'][0]['message'] ) ) {
+				$err .= ': ' . $json['errors'][0]['message'];
+			} elseif ( 200 !== $code ) {
+				$err .= ' (HTTP ' . $code . ')';
+			}
+			return $detailed ? array(
+				'success'  => false,
+				'error'    => $err,
+				'record'   => $existing,
+				'response' => $json,
+			) : false;
+		}
+
+		foreach ( $s['dns_records_cache'] as &$rr ) {
+			if ( ! empty( $rr['id'] ) && $rr['id'] === $record_id ) {
+				$rr['proxied'] = (bool) $proxied_on;
+				break; }
+		}
+		$this->persist_dns_cache( $s['dns_records_cache'] );
+		return $detailed ? array(
+			'success' => true,
+			'record'  => $existing,
+		) : true;
+	}
+
+	/* ================== Capa de caché ================== */
+
+	/**
+	 * Save DNS records to the persistent settings cache.
+	 *
+	 * @param array $records DNS records to cache.
+	 */
+	private function persist_dns_cache( array $records ) {
+		$s                        = $this->get_settings();
+		$s['dns_records_cache']   = $records;
+		$s['dns_cache_last_sync'] = current_time( 'mysql' );
+		$ok                       = $this->save_settings( $s );
+		$this->log( 'Persistencia cache DNS: ' . ( $ok ? 'OK' : 'SIN CAMBIOS' ) . ' (' . count( $records ) . ' registros).' );
+	}
+
+	/* ================== Lógica automática por JSON ================== */
+
+	/** Check football block status and toggle Cloudflare proxy accordingly. */
+	public function check_football_and_manage_cloudflare() {
+		$settings           = $this->get_settings();
+		$calc               = $this->compute_statuses_from_json();
+		$general            = $calc['general'];
+		$domain             = $calc['domain'];
+		$blocked_domain_ips = $calc['blocked_domain_ips'] ?? array();
+		$stored_blocked     = isset( $settings['bypass_blocked_ips'] ) && is_array( $settings['bypass_blocked_ips'] ) ? $settings['bypass_blocked_ips'] : array();
+		$now_mysql          = current_time( 'mysql' );
+		$now_ts             = time();
+		$prev_active        = ! empty( $settings['bypass_active'] );
+		$last_change        = isset( $settings['bypass_last_change'] ) ? intval( $settings['bypass_last_change'] ) : 0;
+		$cooldown_minutes   = isset( $settings['bypass_check_cooldown'] ) ? intval( $settings['bypass_check_cooldown'] ) : 60;
+		if ( $cooldown_minutes < 5 ) {
+			$cooldown_minutes = 5;
+		}
+		if ( $cooldown_minutes > 1440 ) {
+			$cooldown_minutes = 1440;
+		}
+		$cooldown_seconds = $cooldown_minutes * 60;
+
+		$should_disable = ( 'SÍ' === $domain );
+		$reason         = $should_disable ? 'domain_blocked' : 'domain_clear';
+
+		// MODIFICACIÓN: Override - forzar OFF cuando General=SI aunque dominio no esté bloqueado.
+		if ( ! $should_disable && ! empty( $settings['force_proxy_off_override'] ) && 'SÍ' === $general ) {
+			$should_disable = true;
+			$reason         = 'override_general_football';
+		}
+
+		$cooldown_waiting   = false;
+		$cooldown_remaining = 0;
+		$still_waiting_ips  = array();
+
+		if ( ! $should_disable && $prev_active ) {
+			$still_waiting_ips = array_intersect( $stored_blocked, $blocked_domain_ips );
+			if ( ! empty( $still_waiting_ips ) ) {
+				$should_disable = true;
+				$reason         = 'waiting_previous_ips';
+			} elseif ( $last_change && ( $now_ts - $last_change ) < $cooldown_seconds ) {
+				$should_disable     = true;
+				$reason             = 'cooldown';
+				$cooldown_waiting   = true;
+				$cooldown_remaining = $cooldown_seconds - ( $now_ts - $last_change );
+			}
+		}
+
+		$desired_proxied = ! $should_disable;
+
+		$updated          = 0;
+		$detailed_results = array();
+		if ( ! empty( $settings['selected_records'] ) ) {
+			$this->persist_dns_cache( $this->fetch_dns_records() );
+			foreach ( $settings['selected_records'] as $rid ) {
+				$res = $this->update_record_proxy_status( $rid, $desired_proxied, true );
+				if ( is_array( $res ) && ! empty( $res['success'] ) ) {
+					if ( empty( $res['skipped'] ) ) {
+						++$updated;
+					}
+					$detailed_results[ $rid ] = $res;
+				}
+			}
+		}
+
+		if ( ! empty( $settings['selected_records'] ) ) {
+			// Los PUT no tocan la caché: la recargamos para que refleje el estado que acabamos de aplicar.
+			if ( $updated > 0 ) {
+				$after = $this->fetch_dns_records();
+				if ( ! empty( $after ) ) {
+					$this->persist_dns_cache( $after );
+				}
+			}
+			// $settings se leyó antes de refrescar la caché: guardarlo tal cual la sobrescribiría con datos viejos.
+			$settings = $this->get_settings();
+		}
+
+		$settings['last_check']          = $now_mysql;
+		$settings['last_status_general'] = ( 'SÍ' === $general ) ? 'SI' : 'NO';
+		$settings['last_status_domain']  = ( 'SÍ' === $domain ) ? 'SI' : 'NO';
+		$settings['last_update']         = $calc['last_update'] ?? $settings['last_update'];
+
+		if ( $should_disable ) {
+			if ( ! $prev_active ) {
+				$settings['bypass_last_change'] = $now_ts; }
+			$settings['bypass_active']      = 1;
+			$settings['bypass_blocked_ips'] = ! empty( $blocked_domain_ips ) ? $blocked_domain_ips : $stored_blocked;
+		} else {
+			if ( $prev_active ) {
+				$settings['bypass_last_change'] = $now_ts; }
+			$settings['bypass_active']      = 0;
+			$settings['bypass_blocked_ips'] = array();
+		}
+
+		$this->save_settings( $settings );
+		$this->log( "Auto-check: general={$settings['last_status_general']} domain={$settings['last_status_domain']} updated=$updated" );
+
+		$new_active = ! empty( $settings['bypass_active'] );
+		if ( $new_active !== $prev_active ) {
+			$this->maybe_send_state_change_email( $new_active, $reason );
+		}
+
+		$changes = array();
+		if ( ! empty( $settings['selected_records'] ) ) {
+			foreach ( $settings['selected_records'] as $rid ) {
+				$changes[] = $this->summarize_record_change( $rid, $desired_proxied, $detailed_results[ $rid ] ?? null );
+			}
+		}
+
+		$log_context = array(
+			'general'                    => $settings['last_status_general'],
+			'domain'                     => $settings['last_status_domain'],
+			'registros_seleccionados'    => count( $settings['selected_records'] ?? array() ),
+			'bypass_activo'              => $settings['bypass_active'],
+			'cooldown_minutos'           => $cooldown_minutes,
+			'motivo'                     => $reason,
+			'bypass_ultima_modificacion' => $settings['bypass_last_change'] ?? 0,
+			'override_activado'          => ! empty( $settings['force_proxy_off_override'] ) ? 1 : 0,
+		);
+		if ( $should_disable ) {
+			if ( 'domain_blocked' === $reason ) {
+				$log_context['accion'] = 'Proxy OFF (dominio bloqueado)';
+			} elseif ( 'override_general_football' === $reason ) {
+				$log_context['accion'] = 'Proxy OFF (OVERRIDE: General=SI, fútbol detectado)';
+			} elseif ( 'waiting_previous_ips' === $reason ) {
+				$log_context['accion'] = 'Proxy OFF (esperando desbloqueo de IPs anteriores)';
+			} elseif ( 'cooldown' === $reason ) {
+				$log_context['accion'] = 'Proxy OFF (en periodo de enfriamiento)';
+			} else {
+				$log_context['accion'] = 'Proxy OFF';
+			}
+		} else {
+			$log_context['accion'] = 'Proxy ON (dominio sin bloqueo)';
+		}
+		if ( ! empty( $settings['bypass_blocked_ips'] ) ) {
+			$log_context['ips_bloqueadas'] = $settings['bypass_blocked_ips'];
+		}
+		if ( $cooldown_waiting && $cooldown_remaining > 0 ) {
+			$log_context['cooldown_restante_seg'] = $cooldown_remaining;
+			$log_context['cooldown_restante_min'] = max( 1, ceil( $cooldown_remaining / 60 ) );
+		}
+		if ( ! empty( $still_waiting_ips ) ) {
+			$log_context['ips_pendientes'] = array_values( $still_waiting_ips );
+		}
+		if ( $updated > 0 ) {
+			$log_context['cambios'] = 'Se aplicaron ' . $updated . ' cambios de proxy.';
+		} else {
+			$log_context['cambios'] = 'Sin cambios; estado deseado ya aplicado.';
+		}
+		if ( ! empty( $changes ) ) {
+			$log_context['detalle'] = $changes;
+		}
+
+		$this->log_event( 'cron', 'Auto-check ejecutado', $log_context );
+	}
+
+	/**
+	 * Build a summary array describing the proxy change for a single record.
+	 *
+	 * @param string     $record_id       Cloudflare DNS record ID.
+	 * @param bool       $desired_proxied Desired proxy state.
+	 * @param array|null $result          Result from update_record_proxy_status.
+	 * @return array Summary of the change.
+	 */
+	private function summarize_record_change( $record_id, $desired_proxied, $result = null ) {
+		$s          = $this->get_settings();
+		$info       = array( 'id' => $record_id );
+		$record_data = null;
+		if ( is_array( $result ) && isset( $result['record'] ) ) {
+			$record_data     = $result['record'];
+			$info['accion'] = empty( $result['skipped'] ) ? 'actualizado' : 'sin cambio';
+			if ( ! empty( $result['error'] ) ) {
+				$info['accion'] = 'error';
+			}
+		}
+		if ( ! $record_data ) {
+			foreach ( (array) $s['dns_records_cache'] as $r ) {
+				if ( ! empty( $r['id'] ) && $r['id'] === $record_id ) {
+					$record_data = $r;
+					break;
+				}
+			}
+		}
+		if ( $record_data ) {
+			$info['name']              = $record_data['name'] ?? '';
+			$info['tipo']              = $record_data['type'] ?? '';
+			$info['nuevo_estado']      = $desired_proxied ? 'ON' : 'OFF';
+			$current                   = isset( $record_data['proxied'] ) ? ( $record_data['proxied'] ? 'ON' : 'OFF' ) : 'desconocido';
+			$info['estado_resultante'] = $current;
+			if ( ! isset( $info['accion'] ) ) {
+				$info['accion'] = ( $current === $info['nuevo_estado'] ) ? 'sin cambio' : 'actualizado';
+			}
+		} else {
+			$info['accion'] = 'registro no encontrado';
+		}
+		return $info;
+	}
+
+	/* ================== JSON bloqueos ================== */
+
+	/**
+	 * Compute general and domain block statuses from the remote JSON data.
+	 *
+	 * @param bool $force_refresh_ips Whether to force a DNS resolution refresh.
+	 * @return array Status data with general, domain, IPs, and timestamps.
+	 */
+	public function compute_statuses_from_json( $force_refresh_ips = false ) {
+		$domain = $this->get_site_domain();
+		$data   = $this->fetch_status_json();
+		if ( null === $data ) {
+			return array(
+				'general'            => 'NO',
+				'domain'             => 'NO',
+				'fresh'              => false,
+				'domain_ips'         => array(),
+				'blocked_domain_ips' => array(),
+				'last_update'        => '',
+			); }
+
+		$map             = $data['ip_map'] ?? array();
+		$isps_blocked    = $data['isps_blocked'] ?? array();
+		$last_update_str = $data['last_update'] ?? '';
+		$s_now           = $this->get_settings();
+		$min_isps        = isset( $s_now['min_isps_blocked'] ) ? max( 1, intval( $s_now['min_isps_blocked'] ) ) : 2;
+		$min_isps        = (int) apply_filters( 'cfbcolorvivo_min_isps_blocked', $min_isps );
+
+		$blocked_ip_count = 0;
+		foreach ( $map as $blocked ) {
+			if ( true === $blocked ) {
+				++$blocked_ip_count;
+			}
+		}
+
+		// Si hay IPs bloqueadas pero el feed no publica info de ISP, fallback al comportamiento previo
+		// (cualquier IP bloqueada => general = SI). Si el feed sí publica ISPs, exigimos el mínimo.
+		if ( $blocked_ip_count > 0 && empty( $isps_blocked ) ) {
+			$general_blocked = true;
+		} else {
+			$general_blocked = ( $blocked_ip_count > 0 ) && ( count( $isps_blocked ) >= $min_isps );
+		}
+
+		$resolved_ips       = $this->resolve_domain_ips( $domain, $force_refresh_ips );
+		$blocked_domain_ips = array();
+		$domain_blocked     = false;
+		foreach ( $resolved_ips as $ip ) {
+			if ( isset( $map[ $ip ] ) && true === $map[ $ip ] ) {
+				$domain_blocked       = true;
+				$blocked_domain_ips[] = $ip;
+			}
+		}
+
+		return array(
+			'general'            => $general_blocked ? 'SÍ' : 'NO',
+			'domain'             => $domain_blocked ? 'SÍ' : 'NO',
+			'fresh'              => $data['fresh'] ?? false,
+			'domain_ips'         => $resolved_ips,
+			'blocked_domain_ips' => $blocked_domain_ips,
+			'last_update'        => $last_update_str,
+			'isps_blocked'       => $isps_blocked,
+			'min_isps'           => $min_isps,
+		);
+	}
+	/** Return the current site domain from home_url. */
+	private function get_site_domain() {
+		$home = home_url( '/' );
+		$host = wp_parse_url( $home, PHP_URL_HOST );
+		if ( ! $host ) {
+			// Fallback to HTTP_HOST only if home_url parsing fails.
+			$host = isset( $_SERVER['HTTP_HOST'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) ) : '';
+		}
+
+		/**
+		 * Filters the domain the plugin considers to be this site.
+		 *
+		 * Useful behind a reverse proxy, or on a staging copy that must be checked
+		 * against the production domain.
+		 *
+		 * @param string $host Domain resolved from home_url().
+		 */
+		return (string) apply_filters( 'cfbcolorvivo_site_domain', $host );
+	}
+	/**
+	 * Resolve the A and AAAA records for a domain, with transient caching.
+	 *
+	 * @param string $domain Domain name to resolve.
+	 * @param bool   $force  Whether to bypass the transient cache.
+	 * @return array Resolved IP addresses.
+	 */
+	private function resolve_domain_ips( $domain, $force = false ) {
+		$cache_key = 'cfbcolorvivo_domain_ips_cache';
+		$cached    = get_transient( $cache_key );
+		if ( ! $force && is_array( $cached ) && isset( $cached['domain'] ) && $cached['domain'] === $domain && isset( $cached['ips'] ) ) {
+			return (array) $cached['ips'];
+		}
+
+		$ips = array();
+		if ( $domain && ! $this->is_local_domain( $domain ) ) {
+			$records = dns_get_record( $domain, DNS_A + DNS_AAAA );
+			if ( false === $records ) {
+				$this->log( '[CFB] dns_get_record() falló para ' . $domain );
+			} elseif ( is_array( $records ) ) {
+				foreach ( $records as $r ) {
+					if ( ! empty( $r['type'] ) && ( 'A' === $r['type'] || 'AAAA' === $r['type'] ) ) {
+						$ip = 'A' === $r['type'] ? ( $r['ip'] ?? '' ) : ( $r['ipv6'] ?? '' );
+						if ( $ip ) {
+							$ips[] = $ip;
+						}
+					}
+				}
+			}
+		}
+		$ips = array_values( array_unique( $ips ) );
+		set_transient(
+			$cache_key,
+			array(
+				'domain' => $domain,
+				'ips'    => $ips,
+			),
+			MINUTE_IN_SECONDS
+		);
+		return $ips;
+	}
+	/** Search for a local copy of data.json in known candidate paths. */
+	private function locate_local_data_json() {
+		$upload_base = wp_upload_dir()['basedir'];
+		$candidates  = array(
+			$upload_base . '/es-football-bypass-for-cloudflare/data.json',
+			$upload_base . '/cfbcolorvivo/data.json',
+		);
+		$candidates = apply_filters( 'cfbcolorvivo_local_data_json_paths', $candidates );
+		foreach ( $candidates as $p ) {
+			if ( ! is_string( $p ) || '' === $p ) {
+				continue;
+			}
+			if ( file_exists( $p ) && is_readable( $p ) && filesize( $p ) > 0 ) {
+				return $p;
+			}
+		}
+		return null;
+	}
+	/**
+	 * Read lastUpdate from a raw feed body without building the whole array.
+	 *
+	 * The feed decodes to about 50 MB, so it should not be decoded just to compare a
+	 * timestamp. lastUpdate is the first key of the feed; if that ever changes this
+	 * falls back to a full decode, released before returning.
+	 *
+	 * @param string $body Raw JSON body.
+	 * @return string|null lastUpdate value, or null if the body has none.
+	 */
+	private function read_feed_last_update( $body ) {
+		if ( ! is_string( $body ) || '' === $body ) {
+			return null;
+		}
+		if ( preg_match( '/\A\s*\{\s*"lastUpdate"\s*:\s*"([^"\\\\]+)"/', substr( $body, 0, 256 ), $matches ) ) {
+			return $matches[1];
+		}
+		$json = json_decode( $body, true );
+		return ( is_array( $json ) && ! empty( $json['lastUpdate'] ) && is_string( $json['lastUpdate'] ) ) ? $json['lastUpdate'] : null;
+	}
+
+	/** Fetch and cache the football block status JSON from remote or local. */
+	private function fetch_status_json() {
+		$uploads_dir = $this->plugin_upload_dir;
+		$local_path  = $uploads_dir . '/data.json';
+		$wp_fs       = $this->get_wp_filesystem();
+
+		$local_body = null;
+		$last_local = null;
+		if ( $wp_fs && $wp_fs->exists( $local_path ) && $wp_fs->is_readable( $local_path ) && $wp_fs->size( $local_path ) > 0 ) {
+			$local_body = $wp_fs->get_contents( $local_path );
+			if ( false !== $local_body ) {
+				$last_local = $this->read_feed_last_update( $local_body );
+			}
+		}
+
+		$remote_ok   = false;
+		$remote_body = null;
+		$remote_json = null;
+		$last_remote = null;
+		$remote_code = 0;
+		$remote_err  = '';
+
+		// Throttle: si el feed remoto se descargó con éxito hace menos de N segundos y ya
+		// tenemos copia local, evitamos repetir la petición HTTP bloqueante. Una sola carga
+		// de la pantalla de Operación llama aquí varias veces (estado + diagnóstico); sin esto
+		// cada render encadenaba peticiones de 25 s a hayahora.futbol.
+		$fetch_throttle = (int) apply_filters( 'cfbcolorvivo_feed_fetch_throttle_seconds', MINUTE_IN_SECONDS );
+		$last_fetch     = get_transient( 'cfbcolorvivo_feed_last_fetch' );
+		$skip_remote    = ( $fetch_throttle > 0 && is_string( $local_body ) && '' !== $local_body
+			&& is_array( $last_fetch ) && ! empty( $last_fetch['ok'] ) && ! empty( $last_fetch['time'] )
+			&& ( time() - (int) $last_fetch['time'] ) < $fetch_throttle );
+
+		if ( ! $skip_remote ) {
+			$url = apply_filters( 'cfbcolorvivo_remote_data_json_url', 'https://hayahora.futbol/estado/data.json' );
+			/**
+			 * Filters the largest feed size accepted, in bytes.
+			 *
+			 * A longer response is truncated, fails to decode and the local copy stays in use.
+			 *
+			 * @param int $max_bytes Maximum size in bytes.
+			 */
+			$max_bytes = (int) apply_filters( 'cfbcolorvivo_feed_max_bytes', 20 * MB_IN_BYTES );
+
+			$resp = wp_safe_remote_get(
+				$url,
+				array(
+					'timeout'             => 25,
+					'redirection'         => 5,
+					'user-agent'          => 'ESFB/2.0.2; ' . home_url( '/' ),
+					'limit_response_size' => $max_bytes,
+				)
+			);
+			if ( is_wp_error( $resp ) ) {
+				$remote_err = $resp->get_error_message();
+			} else {
+				$remote_code = (int) wp_remote_retrieve_response_code( $resp );
+				if ( 200 === $remote_code ) {
+					$remote_body = wp_remote_retrieve_body( $resp );
+					$remote_json = json_decode( $remote_body, true );
+					if ( is_array( $remote_json ) ) {
+						$remote_ok = true;
+						if ( ! empty( $remote_json['lastUpdate'] ) && is_string( $remote_json['lastUpdate'] ) ) {
+							$last_remote = $remote_json['lastUpdate'];
+						}
+					} else {
+						$remote_err = 'respuesta no es JSON válido';
+					}
+				} else {
+					$remote_err = 'HTTP ' . $remote_code;
+				}
+			}
+			set_transient(
+				'cfbcolorvivo_feed_last_fetch',
+				array(
+					'time'  => time(),
+					'ok'    => $remote_ok,
+					'code'  => $remote_code,
+					'error' => $remote_err,
+				),
+				DAY_IN_SECONDS
+			);
+		}
+
+		$should_write = false;
+		if ( $remote_ok ) {
+			if ( ! $local_body ) {
+				$should_write = true; } elseif ( $last_remote && $last_local ) {
+				try {
+					$dr = new DateTime( $last_remote );
+					$dl = new DateTime( $last_local );
+					if ( $dr > $dl ) {
+						$should_write = true;
+					}
+				} catch ( Exception $e ) {
+					$this->log( '[CFB] DateTime parse falló al comparar lastUpdate: ' . $e->getMessage() );
+					if ( md5( $remote_body ) !== md5( $local_body ) ) {
+						$should_write = true;
+					}
+				}
+				} elseif ( md5( $remote_body ) !== md5( $local_body ) ) {
+					$should_write = true;
+				}
+		}
+
+		if ( $should_write ) {
+			if ( ! file_exists( $uploads_dir ) ) {
+				wp_mkdir_p( $uploads_dir );
+			}
+			if ( $wp_fs && is_dir( $uploads_dir ) && wp_is_writable( $uploads_dir ) ) {
+				$written = $wp_fs->put_contents( $local_path, $remote_body, FS_CHMOD_FILE );
+				if ( false !== $written ) {
+					$local_body = $remote_body;
+					$last_local = $last_remote;
+					$this->log( '[CFB] Local data.json actualizado.' );
+				}
+			} else {
+				$this->log( '[CFB] No se puede escribir en ' . $uploads_dir );
+			}
+		}
+
+		$body = $local_body ? $local_body : ( $remote_ok ? $remote_body : null );
+		if ( ! is_string( $body ) || '' === $body ) {
+			return null;
+		}
+
+		// Reutilizamos el remoto ya decodificado si es el que vamos a usar; si no, se libera
+		// antes de decodificar el local para no tener nunca dos copias en memoria (issue #8).
+		if ( is_array( $remote_json ) && $body === $remote_body ) {
+			$json = $remote_json;
+		} else {
+			$remote_json = null;
+			$json        = json_decode( $body, true );
+			// Copia local corrupta con cabecera válida (p. ej. escritura truncada): se repara con el remoto.
+			if ( ! is_array( $json ) && $remote_ok ) {
+				$json = json_decode( $remote_body, true );
+				if ( $wp_fs && is_array( $json ) ) {
+					$wp_fs->put_contents( $local_path, $remote_body, FS_CHMOD_FILE );
+					$this->log( '[CFB] Local data.json corrupto; restaurado desde el remoto.' );
+				}
+			}
+		}
+		unset( $remote_json, $remote_body, $local_body, $body );
+
+		if ( ! is_array( $json ) ) {
+			$this->log( '[CFB] JSON decode failed' );
+			return null; }
+
+		$last_update_str = ( ! empty( $json['lastUpdate'] ) && is_string( $json['lastUpdate'] ) ) ? $json['lastUpdate'] : '';
+		$fresh           = false;
+		$now_ts          = time();
+		if ( $last_update_str ) {
+			$ts = strtotime( $last_update_str );
+			if ( $ts ) {
+				$diff = $now_ts - $ts;
+				if ( isset( $this->fresh_window ) ) {
+					$fresh = ( $diff >= 0 && $diff <= $this->fresh_window ); }
+			}
+		}
+
+		$has_known_shape = false;
+		foreach ( array( 'ips', 'ip', 'data', 'results' ) as $k ) {
+			if ( isset( $json[ $k ] ) ) {
+				$has_known_shape = true;
+				break;
+			}
+		}
+		if ( ! $has_known_shape && '' === $last_update_str ) {
+			$this->log( '[CFB] Estructura de data.json inesperada: no hay lastUpdate ni claves de IPs conocidas (ips/ip/data/results).' );
+		}
+
+		$extracted = $this->extract_ip_block_map( $json );
+		unset( $json );
+
+		$map           = $extracted['ip_map'] ?? array();
+		$isps_blocked  = $extracted['isps_blocked'] ?? array();
+		$blocked_count = 0;
+		foreach ( $map as $blk ) {
+			if ( true === $blk ) {
+				++$blocked_count;
+			}
+		}
+		$this->log( '[CFB] data.json procesado; IPs bloqueadas=' . $blocked_count . '/' . count( $map ) . ' · ISPs afectados=' . count( $isps_blocked ) );
+		return array(
+			'fresh'        => $fresh,
+			'ip_map'       => $map,
+			'isps_blocked' => $isps_blocked,
+			'last_update'  => $last_update_str,
+		);
+	}
+	/**
+	 * Resolve the latest boolean state from a stateChanges array, applying
+	 * the staleness threshold: a "true" state whose latest timestamp is older
+	 * than $stale_seconds is demoted to false (prevents orphan entries from
+	 * keeping the bypass active indefinitely when the closing event is missing).
+	 *
+	 * @param array $changes       Raw stateChanges entries.
+	 * @param int   $stale_seconds Seconds beyond which a "true" is treated as false.
+	 * @return bool|null           Latest state, or null if none resolvable.
+	 */
+	private function latest_state_from_changes( $changes, $stale_seconds ) {
+		if ( ! is_array( $changes ) ) {
+			return null;
+		}
+		$max_ts = null;
+		$state  = null;
+		foreach ( $changes as $chg ) {
+			if ( ! is_array( $chg ) ) {
+				continue;
+			}
+			$ts = null;
+			if ( isset( $chg['timestamp'] ) ) {
+				$ts = strtotime( (string) $chg['timestamp'] );
+			} elseif ( isset( $chg['time'] ) ) {
+				$ts = strtotime( (string) $chg['time'] );
+			}
+			if ( false === $ts ) {
+				$ts = null;
+			}
+			$s = isset( $chg['state'] ) ? $this->normalize_bool_like( $chg['state'] ) : ( isset( $chg['status'] ) ? $this->normalize_bool_like( $chg['status'] ) : null );
+			if ( null !== $s && ( null === $max_ts || ( null !== $ts && $ts > $max_ts ) ) ) {
+				$max_ts = $ts;
+				$state  = $s;
+			}
+		}
+		if ( true === $state && null !== $max_ts && $stale_seconds > 0 && ( time() - $max_ts ) > $stale_seconds ) {
+			$state = false;
+		}
+		return $state;
+	}
+
+	/**
+	 * Extract block status from the JSON data.
+	 *
+	 * @param array $json Decoded JSON data from the status endpoint.
+	 * @return array {
+	 *     @type array $ip_map       Associative array IP => bool (blocked).
+	 *     @type array $isps_blocked List of distinct ISP names with at least one currently-blocked IP. Empty if the feed shape has no ISP info.
+	 * }
+	 */
+	private function extract_ip_block_map( $json ) {
+		$map           = array();
+		$isps_blocked  = array();
+		$ips           = null;
+		$s             = $this->get_settings();
+		$stale_hours   = isset( $s['stale_threshold_hours'] ) ? intval( $s['stale_threshold_hours'] ) : 6;
+		$stale_seconds = (int) apply_filters( 'cfbcolorvivo_stale_threshold_seconds', $stale_hours * HOUR_IN_SECONDS );
+		foreach ( array( 'ips', 'ip', 'data', 'results' ) as $k ) {
+			if ( isset( $json[ $k ] ) ) {
+				$ips = $json[ $k ];
+				break; }
+		}
+		if ( null === $ips ) {
+			$all = true;
+			if ( is_array( $json ) ) {
+				foreach ( $json as $k => $v ) {
+					if ( ! filter_var( $k, FILTER_VALIDATE_IP ) ) {
+						$all = false;
+						break;
+					}
+				} if ( $all ) {
+					$ips = $json;
+				}
+			}
+		}
+		if ( ! is_array( $ips ) ) {
+			return array(
+				'ip_map'       => array(),
+				'isps_blocked' => array(),
+			);
+		}
+		if ( $this->is_assoc( $ips ) ) {
+			foreach ( $ips as $ip => $val ) {
+				if ( ! is_string( $ip ) ) {
+					continue;
+				}
+				if ( is_bool( $val ) || is_int( $val ) || is_string( $val ) ) {
+					$b = $this->normalize_bool_like( $val );
+					if ( null !== $b ) {
+						$map[ $ip ] = $b;
+					} continue; }
+				if ( is_array( $val ) ) {
+					$latest       = null;
+					$statechanges = $this->array_value_ci( $val, 'statechanges' );
+					if ( is_array( $statechanges ) ) {
+						$st = $this->latest_state_from_changes( $statechanges, $stale_seconds );
+						if ( null !== $st ) {
+							$latest = $st;
+						}
+					}
+					foreach ( array( 'isps', 'providers', 'carriers' ) as $k ) {
+						if ( null !== $latest ) {
+							break;
+						}
+						$sub = $this->array_value_ci( $val, $k );
+						if ( is_array( $sub ) ) {
+							$any = null;
+							foreach ( $sub as $isp_key => $isp_val ) {
+								if ( ! is_array( $isp_val ) ) {
+									continue;
+								}
+								$isp_state = null;
+								$statechanges_sub = $this->array_value_ci( $isp_val, 'statechanges' );
+								if ( is_array( $statechanges_sub ) ) {
+									$isp_state = $this->latest_state_from_changes( $statechanges_sub, $stale_seconds );
+								} else {
+									foreach ( array( 'blocked', 'isBlocked', 'status' ) as $kk ) {
+										$v = $this->array_value_ci( $isp_val, $kk );
+										if ( null !== $v ) {
+											$nb = $this->normalize_bool_like( $v );
+											if ( null !== $nb ) {
+												$isp_state = $nb;
+												break;
+											}
+										}
+									}
+								}
+								if ( null !== $isp_state ) {
+									$any = null === $any ? $isp_state : ( $any || $isp_state );
+									if ( true === $isp_state ) {
+										$isp_name = is_string( $isp_key ) ? $isp_key : '';
+										if ( '' === $isp_name ) {
+											foreach ( array( 'name', 'isp', 'provider', 'carrier' ) as $nk ) {
+												$nv = $this->array_value_ci( $isp_val, $nk );
+												if ( is_string( $nv ) && '' !== $nv ) {
+													$isp_name = $nv;
+													break;
+												}
+											}
+										}
+										if ( '' !== $isp_name ) {
+											$isps_blocked[ $isp_name ] = true;
+										}
+									}
+								}
+							}
+							if ( null !== $any ) {
+								$latest = $any;
+							}
+						}
+					}
+					if ( null !== $latest ) {
+						$map[ $ip ] = (bool) $latest;
+					}
+					foreach ( array( 'blocked', 'isBlocked', 'status' ) as $kk ) {
+						$v = $this->array_value_ci( $val, $kk );
+						if ( null !== $v ) {
+							$b = $this->normalize_bool_like( $v );
+							if ( null !== $b ) {
+								$map[ $ip ] = $b;
+								continue 2; }
+						}
+					}
+				}
+			}
+		} else {
+			foreach ( $ips as $entry ) {
+				if ( ! is_array( $entry ) ) {
+					continue;
+				}
+				$ip = (string) ( $entry['ip'] ?? '' );
+				if ( ! $ip ) {
+					continue;
+				}
+				$b = null;
+				foreach ( array( 'blocked', 'isBlocked', 'status' ) as $k ) {
+					$v = $this->array_value_ci( $entry, $k );
+					if ( null !== $v ) {
+						$b = $this->normalize_bool_like( $v );
+						if ( null !== $b ) {
+							break;
+						}
+					}
+				}
+				if ( null === $b ) {
+					$statechanges = $this->array_value_ci( $entry, 'statechanges' );
+					if ( is_array( $statechanges ) ) {
+						$st = $this->latest_state_from_changes( $statechanges, $stale_seconds );
+						if ( null !== $st ) {
+							$b = $st;
+						}
+					}
+				}
+				if ( null !== $b ) {
+					// IP se repite por ISP en este feed: OR lógico para no perder bloqueos previos registrados para la misma IP.
+					$prev         = isset( $map[ $ip ] ) ? (bool) $map[ $ip ] : false;
+					$map[ $ip ]   = $prev || (bool) $b;
+					if ( true === (bool) $b ) {
+						$isp_name = '';
+						foreach ( array( 'isp', 'provider', 'carrier', 'name' ) as $nk ) {
+							$nv = $this->array_value_ci( $entry, $nk );
+							if ( is_string( $nv ) && '' !== $nv ) {
+								$isp_name = $nv;
+								break;
+							}
+						}
+						if ( '' !== $isp_name ) {
+							$isps_blocked[ $isp_name ] = true;
+						}
+					}
+				}
+			}
+		}
+		return array(
+			'ip_map'       => $map,
+			'isps_blocked' => array_keys( $isps_blocked ),
+		);
+	}
+
+	/**
+	 * Return a diagnostics snapshot of the remote/local feed state.
+	 *
+	 * Used by the Operation UI to help users understand why the plugin reports
+	 * a given block status (stale local cache, remote fetch failing, etc.).
+	 *
+	 * @return array {
+	 *     @type bool   $local_exists
+	 *     @type int    $local_size     Size in bytes.
+	 *     @type int    $local_mtime    Unix timestamp.
+	 *     @type string $local_last_update Value of lastUpdate inside local JSON.
+	 *     @type array  $remote_last    Last fetch attempt: time, ok, code, error.
+	 *     @type int    $blocked_count  IPs currently flagged as blocked in the map.
+	 *     @type int    $total_count    Total IPs in the map.
+	 * }
+	 */
+	private function get_feed_diagnostics() {
+		// Primero resolvemos el feed: fetch_status_json puede descargar el remoto y actualizar
+		// el data.json local + el transient de última descarga. Leer el FS y el transient DESPUÉS
+		// garantiza que el panel muestre un estado coherente (especialmente tras "Borrar caché local").
+		$blocked_count = 0;
+		$total_count   = 0;
+		$isps_blocked  = array();
+		$data          = $this->fetch_status_json();
+		if ( is_array( $data ) && isset( $data['ip_map'] ) && is_array( $data['ip_map'] ) ) {
+			$total_count = count( $data['ip_map'] );
+			foreach ( $data['ip_map'] as $blocked ) {
+				if ( true === $blocked ) {
+					++$blocked_count;
+				}
+			}
+			if ( isset( $data['isps_blocked'] ) && is_array( $data['isps_blocked'] ) ) {
+				$isps_blocked = $data['isps_blocked'];
+			}
+		}
+
+		$local_path = $this->plugin_upload_dir . '/data.json';
+		clearstatcache( true, $local_path );
+		$local_exists = file_exists( $local_path );
+		$local_size   = $local_exists ? (int) filesize( $local_path ) : 0;
+		$local_mtime  = $local_exists ? (int) filemtime( $local_path ) : 0;
+		$local_last_update = '';
+		if ( $local_exists && $local_size > 0 ) {
+			$contents = file_get_contents( $local_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+			if ( is_string( $contents ) ) {
+				$local_last_update = (string) $this->read_feed_last_update( $contents );
+			}
+		}
+
+		$remote_last = get_transient( 'cfbcolorvivo_feed_last_fetch' );
+		if ( ! is_array( $remote_last ) ) {
+			$remote_last = array(
+				'time'  => 0,
+				'ok'    => false,
+				'code'  => 0,
+				'error' => '',
+			);
+		}
+
+		$s_cur    = $this->get_settings();
+		$min_isps = isset( $s_cur['min_isps_blocked'] ) ? max( 1, intval( $s_cur['min_isps_blocked'] ) ) : 2;
+
+		return array(
+			'local_exists'      => $local_exists,
+			'local_size'        => $local_size,
+			'local_mtime'       => $local_mtime,
+			'local_last_update' => $local_last_update,
+			'remote_last'       => $remote_last,
+			'blocked_count'     => $blocked_count,
+			'total_count'       => $total_count,
+			'isps_blocked'      => $isps_blocked,
+			'min_isps'          => $min_isps,
+		);
+	}
+
+	/**
+	 * Render the feed diagnostics panel.
+	 *
+	 * @param array $diag Data from get_feed_diagnostics().
+	 */
+	private function echo_feed_diagnostics( array $diag ) {
+		$now = time();
+
+		// data.json local.
+		if ( ! empty( $diag['local_exists'] ) ) {
+			$age       = max( 0, $now - (int) $diag['local_mtime'] );
+			$age_human = human_time_diff( (int) $diag['local_mtime'], $now );
+			$lu        = ! empty( $diag['local_last_update'] ) ? $diag['local_last_update'] : '—';
+			echo '<p><strong>data.json local:</strong> ' . esc_html( $this->format_size( (int) $diag['local_size'] ) )
+				. ' · modificado hace ' . esc_html( $age_human )
+				. ( $age > 2 * HOUR_IN_SECONDS ? ' <span style="color:#b32d2e">(posible cache obsoleta)</span>' : '' )
+				. ' · <code>lastUpdate</code>: ' . esc_html( $lu ) . '</p>';
+		} else {
+			echo '<p><strong>data.json local:</strong> no existe (aún no se ha descargado).</p>';
+		}
+
+		// Última descarga remota.
+		$rl = $diag['remote_last'];
+		if ( ! empty( $rl['time'] ) ) {
+			$age_human = human_time_diff( (int) $rl['time'], $now );
+			if ( ! empty( $rl['ok'] ) ) {
+				echo '<p><strong>Última descarga remota:</strong> <span style="color:#007017">OK</span> hace ' . esc_html( $age_human ) . ' (HTTP ' . esc_html( (string) $rl['code'] ) . ')</p>';
+			} else {
+				$err = ! empty( $rl['error'] ) ? $rl['error'] : 'fallo desconocido';
+				echo '<p><strong>Última descarga remota:</strong> <span style="color:#b32d2e">FALLO</span> hace ' . esc_html( $age_human ) . ' — ' . esc_html( $err ) . '</p>';
+			}
+		} else {
+			echo '<p><strong>Última descarga remota:</strong> sin datos todavía.</p>';
+		}
+
+		// Conteo de IPs.
+		$total   = (int) $diag['total_count'];
+		$blocked = (int) $diag['blocked_count'];
+		if ( $total > 0 ) {
+			$color = $blocked > 0 ? '#b32d2e' : '#007017';
+			echo '<p><strong>IPs marcadas como bloqueadas ahora:</strong> <span style="color:' . esc_attr( $color ) . ';font-weight:600">' . esc_html( (string) $blocked ) . '</span> / ' . esc_html( (string) $total ) . '</p>';
+		} else {
+			echo '<p><strong>IPs marcadas como bloqueadas ahora:</strong> —</p>';
+		}
+
+		// ISPs afectados vs min_isps (gate del general_blocked).
+		$isps     = isset( $diag['isps_blocked'] ) && is_array( $diag['isps_blocked'] ) ? $diag['isps_blocked'] : array();
+		$min_isps = isset( $diag['min_isps'] ) ? (int) $diag['min_isps'] : 2;
+		$isps_cnt = count( $isps );
+		if ( $isps_cnt > 0 ) {
+			$pass      = $isps_cnt >= $min_isps;
+			$color     = $pass ? '#b32d2e' : '#666';
+			$gate_note = $pass ? '≥ mínimo exigido (' . $min_isps . ')' : '< mínimo exigido (' . $min_isps . ') — no dispara bypass automático';
+			echo '<p><strong>ISPs afectados:</strong> <span style="color:' . esc_attr( $color ) . ';font-weight:600">' . esc_html( (string) $isps_cnt ) . '</span> — ' . esc_html( $gate_note ) . '<br><small style="color:#666">' . esc_html( implode( ', ', $isps ) ) . '</small></p>';
+		} elseif ( $blocked > 0 ) {
+			echo '<p><strong>ISPs afectados:</strong> el feed no publica información de ISP; se usa el comportamiento clásico (cualquier IP bloqueada dispara bypass).</p>';
+		}
+	}
+
+	/**
+	 * Format bytes into a human-readable string (KB/MB).
+	 *
+	 * @param int $bytes Size in bytes.
+	 * @return string
+	 */
+	private function format_size( $bytes ) {
+		$bytes = (int) $bytes;
+		if ( $bytes < 1024 ) {
+			return $bytes . ' B';
+		}
+		if ( $bytes < 1024 * 1024 ) {
+			return number_format( $bytes / 1024, 1 ) . ' KB';
+		}
+		return number_format( $bytes / 1048576, 2 ) . ' MB';
+	}
+
+	/**
+	 * Send an email to the site admin when bypass state changes automatically.
+	 *
+	 * No-op unless the setting 'email_notifications' is enabled. Applies a
+	 * short transient-based throttle so rapid oscillations of the feed do not
+	 * generate an email burst.
+	 *
+	 * @param bool   $now_active True if bypass is now active (proxy OFF), false otherwise.
+	 * @param string $reason     Internal reason code (domain_blocked, override_general_football, cooldown, etc.).
+	 */
+	private function maybe_send_state_change_email( $now_active, $reason = '' ) {
+		$s = $this->get_settings();
+		if ( empty( $s['email_notifications'] ) ) {
+			return;
+		}
+		$throttle_seconds = (int) apply_filters( 'cfbcolorvivo_email_throttle_seconds', 2 * MINUTE_IN_SECONDS );
+		if ( $throttle_seconds > 0 && get_transient( 'cfbcolorvivo_last_email_sent' ) ) {
+			$this->log( '[CFB] Email notificación omitida por throttle.' );
+			return;
+		}
+		$custom = isset( $s['notification_email'] ) ? trim( (string) $s['notification_email'] ) : '';
+		$to     = ( '' !== $custom && is_email( $custom ) ) ? $custom : get_option( 'admin_email' );
+		if ( ! is_email( $to ) ) {
+			return;
+		}
+		$site    = get_bloginfo( 'name' );
+		$home    = home_url( '/' );
+		$mgr_url = admin_url( 'admin.php?page=cfbcolorvivo-main' );
+		$version = '2.0.2';
+
+		if ( $now_active ) {
+			/* translators: %s is the site name. */
+			$subject = sprintf( __( '[%s] Cloudflare proxy disabled due to football blocks', 'es-football-bypass-for-cloudflare' ), $site );
+			$body    = __( "Hello,\n\nActive IP blocks from La Liga have been detected and the Cloudflare proxy has been automatically disabled on the configured DNS records.", 'es-football-bypass-for-cloudflare' ) . "\n\n";
+			$body   .= sprintf( /* translators: %s is the site name. */ __( 'Site: %s', 'es-football-bypass-for-cloudflare' ), $site ) . "\n";
+			$body   .= sprintf( /* translators: %s is the site URL. */ __( 'URL: %s', 'es-football-bypass-for-cloudflare' ), $home ) . "\n";
+			$body   .= __( 'State: Proxy OFF (DNS Only)', 'es-football-bypass-for-cloudflare' ) . "\n";
+			if ( '' !== $reason ) {
+				$body .= sprintf( /* translators: %s is the internal reason code. */ __( 'Reason: %s', 'es-football-bypass-for-cloudflare' ), $reason ) . "\n";
+			}
+			$body .= "\n" . __( 'The selected DNS records have switched from Proxied (CDN) to DNS Only so your site remains reachable during the blocks.', 'es-football-bypass-for-cloudflare' ) . "\n\n";
+			$body .= __( 'The proxy will be re-enabled automatically once the blocks end and the configured cooldown passes.', 'es-football-bypass-for-cloudflare' ) . "\n\n";
+			$body .= sprintf( /* translators: %s is the plugin Operation page URL. */ __( 'Current status: %s', 'es-football-bypass-for-cloudflare' ), $mgr_url ) . "\n\n";
+			$body .= "-- \n" . sprintf( /* translators: %s is the plugin version. */ __( 'ES Football Bypass for Cloudflare v%s', 'es-football-bypass-for-cloudflare' ), $version ) . "\n";
+		} else {
+			/* translators: %s is the site name. */
+			$subject = sprintf( __( '[%s] Cloudflare proxy re-enabled', 'es-football-bypass-for-cloudflare' ), $site );
+			$body    = __( "Hello,\n\nNo active La Liga IP blocks are detected. The Cloudflare proxy has been re-enabled automatically.", 'es-football-bypass-for-cloudflare' ) . "\n\n";
+			$body   .= sprintf( /* translators: %s is the site name. */ __( 'Site: %s', 'es-football-bypass-for-cloudflare' ), $site ) . "\n";
+			$body   .= sprintf( /* translators: %s is the site URL. */ __( 'URL: %s', 'es-football-bypass-for-cloudflare' ), $home ) . "\n";
+			$body   .= __( 'State: Proxy ON (CDN)', 'es-football-bypass-for-cloudflare' ) . "\n\n";
+			$body   .= __( 'The selected DNS records are back on Proxied (CDN). Normal operation resumed.', 'es-football-bypass-for-cloudflare' ) . "\n\n";
+			$body   .= sprintf( /* translators: %s is the plugin Operation page URL. */ __( 'Current status: %s', 'es-football-bypass-for-cloudflare' ), $mgr_url ) . "\n\n";
+			$body   .= "-- \n" . sprintf( /* translators: %s is the plugin version. */ __( 'ES Football Bypass for Cloudflare v%s', 'es-football-bypass-for-cloudflare' ), $version ) . "\n";
+		}
+
+		$sent = wp_mail( $to, $subject, $body );
+		if ( $sent && $throttle_seconds > 0 ) {
+			set_transient( 'cfbcolorvivo_last_email_sent', time(), $throttle_seconds );
+		}
+		$this->log( '[CFB] Email notificación ' . ( $sent ? 'enviada' : 'FALLÓ' ) . ' a ' . $to . ' (estado=' . ( $now_active ? 'bypass activo' : 'bypass inactivo' ) . ')' );
+	}
+
+	/* ================== Abilities API (WordPress 6.9+) ================== */
+
+	/**
+	 * Register the ability category for this plugin.
+	 *
+	 * Requires WordPress 6.9 or newer, which is the plugin minimum since 2.0.0.
+	 */
+	public function register_ability_category() {
+		wp_register_ability_category(
+			'es-football-bypass',
+			array(
+				'label'       => __( 'ES Football Bypass', 'es-football-bypass-for-cloudflare' ),
+				'description' => __( 'Check La Liga IP block status and control the Cloudflare proxy on the managed DNS records.', 'es-football-bypass-for-cloudflare' ),
+			)
+		);
+	}
+
+	/**
+	 * Permission check shared by every ability.
+	 *
+	 * Abilities run outside the admin screens (REST, MCP, AI agents), so they enforce
+	 * the same capability the admin pages require.
+	 *
+	 * @return bool True when the current user may operate the plugin.
+	 */
+	public function abilities_permission_check() {
+		return current_user_can( 'manage_options' );
+	}
+
+	/**
+	 * Register the plugin abilities so REST and MCP clients can drive the bypass.
+	 */
+	public function register_abilities() {
+		$record_schema = array(
+			'type'       => 'object',
+			'properties' => array(
+				'id'      => array(
+					'type'        => 'string',
+					'description' => __( 'Cloudflare DNS record ID.', 'es-football-bypass-for-cloudflare' ),
+				),
+				'name'    => array( 'type' => 'string' ),
+				'type'    => array( 'type' => 'string' ),
+				'content' => array( 'type' => 'string' ),
+				'proxied' => array(
+					'type'        => array( 'boolean', 'null' ),
+					'description' => __( 'True when the record goes through the Cloudflare CDN, null when the record cannot be proxied.', 'es-football-bypass-for-cloudflare' ),
+				),
+				'managed' => array(
+					'type'        => 'boolean',
+					'description' => __( 'True when the plugin is allowed to switch this record.', 'es-football-bypass-for-cloudflare' ),
+				),
+			),
+		);
+
+		wp_register_ability(
+			'es-football-bypass/get-status',
+			array(
+				'label'               => __( 'Get bypass status', 'es-football-bypass-for-cloudflare' ),
+				'description'         => __( 'Returns whether La Liga IP blocks are active right now, whether this site is among the blocked IPs, and whether the Cloudflare bypass is currently engaged.', 'es-football-bypass-for-cloudflare' ),
+				'category'            => 'es-football-bypass',
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'blocks_active'      => array(
+							'type'        => 'boolean',
+							'description' => __( 'Blocks are active on some IPs right now.', 'es-football-bypass-for-cloudflare' ),
+						),
+						'domain_blocked'     => array(
+							'type'        => 'boolean',
+							'description' => __( 'This site resolves to at least one blocked IP.', 'es-football-bypass-for-cloudflare' ),
+						),
+						'bypass_active'      => array(
+							'type'        => 'boolean',
+							'description' => __( 'The automatic policy has the bypass engaged. Forcing the proxy by hand does not change this value.', 'es-football-bypass-for-cloudflare' ),
+						),
+						'domain'             => array( 'type' => 'string' ),
+						'domain_ips'         => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'blocked_domain_ips' => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'managed_records'    => array( 'type' => 'integer' ),
+						'last_check'         => array( 'type' => 'string' ),
+						'feed_last_update'   => array( 'type' => 'string' ),
+					),
+				),
+				'execute_callback'    => array( $this, 'ability_get_status' ),
+				'permission_callback' => array( $this, 'abilities_permission_check' ),
+				'meta'                => array(
+					'public'       => true,
+					'show_in_rest' => true,
+					'annotations'  => array(
+						'readonly'    => true,
+						'destructive' => false,
+						'idempotent'  => true,
+					),
+				),
+			)
+		);
+
+		wp_register_ability(
+			'es-football-bypass/list-dns-records',
+			array(
+				'label'               => __( 'List DNS records', 'es-football-bypass-for-cloudflare' ),
+				'description'         => __( 'Lists the cached Cloudflare DNS records with their current proxy state and whether the plugin manages each one. Optionally filtered by record type.', 'es-football-bypass-for-cloudflare' ),
+				'category'            => 'es-football-bypass',
+				'input_schema'        => array(
+					'type'       => 'object',
+					'default'    => array(),
+					'properties' => array(
+						'type'         => array(
+							'type'        => 'string',
+							'enum'        => array( 'A', 'AAAA', 'CNAME' ),
+							'description' => __( 'Return only records of this type.', 'es-football-bypass-for-cloudflare' ),
+						),
+						'managed_only' => array(
+							'type'        => 'boolean',
+							'description' => __( 'Return only the records the plugin manages.', 'es-football-bypass-for-cloudflare' ),
+						),
+					),
+				),
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'records' => array(
+							'type'  => 'array',
+							'items' => $record_schema,
+						),
+						'total'   => array( 'type' => 'integer' ),
+					),
+				),
+				'execute_callback'    => array( $this, 'ability_list_dns_records' ),
+				'permission_callback' => array( $this, 'abilities_permission_check' ),
+				'meta'                => array(
+					'public'       => true,
+					'show_in_rest' => true,
+					'annotations'  => array(
+						'readonly'    => true,
+						'destructive' => false,
+						'idempotent'  => true,
+					),
+				),
+			)
+		);
+
+		wp_register_ability(
+			'es-football-bypass/set-managed-records',
+			array(
+				'label'               => __( 'Set managed DNS records', 'es-football-bypass-for-cloudflare' ),
+				'description'         => __( 'Replaces the list of DNS records the plugin is allowed to switch. Record IDs that do not exist in the Cloudflare zone are ignored. Pass an empty array to stop the plugin from touching DNS at all.', 'es-football-bypass-for-cloudflare' ),
+				'category'            => 'es-football-bypass',
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(
+						'record_ids' => array(
+							'type'        => 'array',
+							'items'       => array( 'type' => 'string' ),
+							'description' => __( 'Cloudflare DNS record IDs to manage.', 'es-football-bypass-for-cloudflare' ),
+						),
+					),
+					'required'   => array( 'record_ids' ),
+				),
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'managed_records' => array( 'type' => 'integer' ),
+						'ignored_ids'     => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+					),
+				),
+				'execute_callback'    => array( $this, 'ability_set_managed_records' ),
+				'permission_callback' => array( $this, 'abilities_permission_check' ),
+				'meta'                => array(
+					'public'       => true,
+					'show_in_rest' => true,
+					'annotations'  => array(
+						'readonly'    => false,
+						'destructive' => false,
+						'idempotent'  => true,
+					),
+				),
+			)
+		);
+
+		wp_register_ability(
+			'es-football-bypass/run-check',
+			array(
+				'label'               => __( 'Run block check now', 'es-football-bypass-for-cloudflare' ),
+				'description'         => __( 'Runs the same check the cron job runs: fetches the hayahora.futbol feed and applies the bypass policy, which may switch the managed records between Proxied and DNS Only.', 'es-football-bypass-for-cloudflare' ),
+				'category'            => 'es-football-bypass',
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'blocks_active'  => array( 'type' => 'boolean' ),
+						'domain_blocked' => array( 'type' => 'boolean' ),
+						'bypass_active'  => array( 'type' => 'boolean' ),
+						'last_check'     => array( 'type' => 'string' ),
+					),
+				),
+				'execute_callback'    => array( $this, 'ability_run_check' ),
+				'permission_callback' => array( $this, 'abilities_permission_check' ),
+				'meta'                => array(
+					'public'       => true,
+					'show_in_rest' => true,
+					'annotations'  => array(
+						'readonly'    => false,
+						'destructive' => false,
+						'idempotent'  => false,
+					),
+				),
+			)
+		);
+
+		wp_register_ability(
+			'es-football-bypass/set-proxy',
+			array(
+				'label'               => __( 'Force proxy on or off', 'es-football-bypass-for-cloudflare' ),
+				'description'         => __( 'Forces the managed DNS records to Proxied (CDN) or DNS Only, exactly like the manual buttons on the Operation page. Changes live DNS at Cloudflare. The next automatic check applies the policy again.', 'es-football-bypass-for-cloudflare' ),
+				'category'            => 'es-football-bypass',
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(
+						'mode' => array(
+							'type'        => 'string',
+							'enum'        => array( 'on', 'off' ),
+							'description' => __( '"on" restores Proxied (CDN); "off" switches to DNS Only.', 'es-football-bypass-for-cloudflare' ),
+						),
+					),
+					'required'   => array( 'mode' ),
+				),
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'mode'      => array( 'type' => 'string' ),
+						'changed'   => array( 'type' => 'integer' ),
+						'unchanged' => array( 'type' => 'integer' ),
+						'failed'    => array( 'type' => 'integer' ),
+						'report'    => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+					),
+				),
+				'execute_callback'    => array( $this, 'ability_set_proxy' ),
+				'permission_callback' => array( $this, 'abilities_permission_check' ),
+				'meta'                => array(
+					'public'       => true,
+					'show_in_rest' => true,
+					'annotations'  => array(
+						'readonly'    => false,
+						'destructive' => true,
+						'idempotent'  => true,
+					),
+				),
+			)
+		);
+	}
+
+	/**
+	 * Ability callback: current block and bypass status.
+	 *
+	 * @return array Status payload matching the registered output schema.
+	 */
+	public function ability_get_status() {
+		$s    = $this->get_settings();
+		$calc = $this->compute_statuses_from_json( false );
+
+		return array(
+			'blocks_active'      => ( 'SÍ' === $calc['general'] ),
+			'domain_blocked'     => ( 'SÍ' === $calc['domain'] ),
+			'bypass_active'      => ! empty( $s['bypass_active'] ),
+			'domain'             => $this->get_site_domain(),
+			'domain_ips'         => array_values( (array) $calc['domain_ips'] ),
+			'blocked_domain_ips' => array_values( (array) $calc['blocked_domain_ips'] ),
+			'managed_records'    => count( (array) ( $s['selected_records'] ?? array() ) ),
+			'last_check'         => (string) ( $s['last_check'] ?? '' ),
+			'feed_last_update'   => (string) ( $calc['last_update'] ?? '' ),
+		);
+	}
+
+	/**
+	 * Ability callback: list the cached DNS records.
+	 *
+	 * @param array $input Optional 'type' and 'managed_only' filters.
+	 * @return array Records payload matching the registered output schema.
+	 */
+	public function ability_list_dns_records( $input = array() ) {
+		$s        = $this->get_settings();
+		$selected = (array) ( $s['selected_records'] ?? array() );
+		$filter   = isset( $input['type'] ) ? (string) $input['type'] : '';
+		$only     = ! empty( $input['managed_only'] );
+
+		$out = array();
+		foreach ( (array) ( $s['dns_records_cache'] ?? array() ) as $r ) {
+			$id      = $r['id'] ?? '';
+			$managed = in_array( $id, $selected, true );
+			if ( $filter && ( $r['type'] ?? '' ) !== $filter ) {
+				continue;
+			}
+			if ( $only && ! $managed ) {
+				continue;
+			}
+			$out[] = array(
+				'id'      => (string) $id,
+				'name'    => (string) ( $r['name'] ?? '' ),
+				'type'    => (string) ( $r['type'] ?? '' ),
+				'content' => (string) ( $r['content'] ?? '' ),
+				'proxied' => array_key_exists( 'proxied', $r ) ? $r['proxied'] : null,
+				'managed' => $managed,
+			);
+		}
+
+		return array(
+			'records' => $out,
+			'total'   => count( $out ),
+		);
+	}
+
+	/**
+	 * Ability callback: replace the managed record selection.
+	 *
+	 * @param array $input Payload with the 'record_ids' array.
+	 * @return array Result payload matching the registered output schema.
+	 */
+	public function ability_set_managed_records( $input = array() ) {
+		$s      = $this->get_settings();
+		$wanted = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', (array) ( $input['record_ids'] ?? array() ) ) ) ) );
+		$known  = array();
+		foreach ( (array) ( $s['dns_records_cache'] ?? array() ) as $r ) {
+			if ( ! empty( $r['id'] ) ) {
+				$known[] = $r['id'];
+			}
+		}
+		$valid   = empty( $known ) ? $wanted : array_values( array_intersect( $wanted, $known ) );
+		$ignored = array_values( array_diff( $wanted, $valid ) );
+
+		$s['selected_records'] = $valid;
+		$this->save_settings( $s );
+		$this->log_event(
+			'manual',
+			'Selección de registros DNS guardada (Abilities API)',
+			array(
+				'usuario'       => $this->current_user_label(),
+				'seleccionados' => count( $valid ),
+				'ignorados'     => count( $ignored ),
+			)
+		);
+
+		return array(
+			'managed_records' => count( $valid ),
+			'ignored_ids'     => $ignored,
+		);
+	}
+
+	/**
+	 * Ability callback: run the block check and apply the policy.
+	 *
+	 * @return array Result payload matching the registered output schema.
+	 */
+	public function ability_run_check() {
+		$this->check_football_and_manage_cloudflare();
+		$s = $this->get_settings();
+		$this->log_event(
+			'manual',
+			'Comprobación ejecutada (Abilities API)',
+			array(
+				'usuario' => $this->current_user_label(),
+				'general' => $s['last_status_general'] ?? 'NO',
+				'dominio' => $s['last_status_domain'] ?? 'NO',
+			)
+		);
+
+		return array(
+			'blocks_active'  => ( 'SI' === ( $s['last_status_general'] ?? 'NO' ) ),
+			'domain_blocked' => ( 'SI' === ( $s['last_status_domain'] ?? 'NO' ) ),
+			'bypass_active'  => ! empty( $s['bypass_active'] ),
+			'last_check'     => (string) ( $s['last_check'] ?? '' ),
+		);
+	}
+
+	/**
+	 * Ability callback: force the managed records to Proxied or DNS Only.
+	 *
+	 * @param array $input Payload with the 'mode' value ("on" or "off").
+	 * @return array|WP_Error Result payload, or WP_Error when nothing can be done.
+	 */
+	public function ability_set_proxy( $input = array() ) {
+		$mode    = isset( $input['mode'] ) ? (string) $input['mode'] : '';
+		$proxied = ( 'on' === $mode );
+
+		$s   = $this->get_settings();
+		$sel = (array) ( $s['selected_records'] ?? array() );
+		if ( empty( $sel ) ) {
+			return new WP_Error(
+				'cfbcolorvivo_no_records',
+				__( 'No DNS records are managed by the plugin. Set them first with the set-managed-records ability.', 'es-football-bypass-for-cloudflare' )
+			);
+		}
+		if ( empty( $s['cloudflare_zone_id'] ) || empty( $s['cloudflare_api_key'] ) ) {
+			return new WP_Error(
+				'cfbcolorvivo_not_configured',
+				__( 'Cloudflare credentials are not configured.', 'es-football-bypass-for-cloudflare' )
+			);
+		}
+
+		$log    = array();
+		$report = $this->apply_proxy_to_records( $sel, $proxied, $log );
+
+		$this->log_event(
+			'manual',
+			'Forzar Proxy ' . ( $proxied ? 'ON' : 'OFF' ) . ' (Abilities API)',
+			array(
+				'usuario'    => $this->current_user_label(),
+				'procesados' => count( $sel ),
+				'ok'         => $report['ok'],
+				'errores'    => $report['failed'],
+			)
+		);
+
+		return array(
+			'mode'      => $proxied ? 'on' : 'off',
+			'changed'   => $report['ok'],
+			'unchanged' => $report['skipped'],
+			'failed'    => $report['failed'],
+			'report'    => $report['lines'],
+		);
+	}
+
+	/* ================== AJAX ================== */
+
+	/** Persist the selected DNS record IDs from an AJAX request. */
+	private function persist_selected_from_ajax() {
+		$s = $this->get_settings();
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce is verified in the calling AJAX handler
+		$sel = isset( $_POST['selected'] ) ? array_map( 'sanitize_text_field', wp_unslash( (array) $_POST['selected'] ) ) : array();
+		$sel = array_values( array_unique( array_filter( $sel ) ) );
+
+		// Descartar ids que ya no existan en la zona (registros borrados en Cloudflare).
+		$cache = isset( $s['dns_records_cache'] ) ? (array) $s['dns_records_cache'] : array();
+		if ( ! empty( $cache ) ) {
+			$known = array();
+			foreach ( $cache as $rec ) {
+				if ( ! empty( $rec['id'] ) ) {
+					$known[] = $rec['id'];
+				}
+			}
+			$sel = array_values( array_intersect( $sel, $known ) );
+		}
+
+		$current_records = isset( $s['selected_records'] ) ? $s['selected_records'] : array();
+		if ( $sel !== $current_records ) {
+			$s['selected_records'] = $sel;
+			$this->save_settings( $s );
+			$this->log( 'Seleccion de registros persistida: ' . count( $sel ) . ' ids.' );
+		}
+		return $sel;
+	}
+
+	/** AJAX handler: persist the DNS record selection without calling Cloudflare. */
+	public function ajax_save_selection() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error(
+				array(
+					'message' => 'Permiso denegado',
+					'log'     => array(),
+				)
+			);
+		}
+		check_ajax_referer( 'cfbcolorvivo_nonce' );
+
+		$sel = $this->persist_selected_from_ajax();
+		$s   = $this->get_settings();
+
+		ob_start();
+		$this->echo_dns_table( isset( $s['dns_records_cache'] ) ? (array) $s['dns_records_cache'] : array(), $sel );
+		$html = ob_get_clean();
+
+		$this->log_event(
+			'manual',
+			'Selección de registros DNS guardada',
+			array(
+				'usuario'       => $this->current_user_label(),
+				'seleccionados' => count( $sel ),
+			)
+		);
+
+		if ( empty( $sel ) ) {
+			$msg = 'Selección guardada: no hay ningún registro marcado, el plugin no tocará tu DNS.';
+		} else {
+			/* translators: %d is the number of selected DNS records. */
+			$msg = sprintf( 'Selección guardada: el plugin gestionará %d registro(s).', count( $sel ) );
+		}
+
+		wp_send_json_success(
+			array(
+				'html'    => $html,
+				'count'   => count( $sel ),
+				'message' => $msg,
+			)
+		);
+	}
+
+	/** AJAX handler: test Cloudflare connection and refresh DNS cache. */
+	public function ajax_test_connection() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error(
+				array(
+					'message' => 'Permiso denegado',
+					'log'     => array(),
+				)
+			);
+		}
+		check_ajax_referer( 'cfbcolorvivo_nonce' );
+
+		$s           = $this->get_settings();
+		$log         = array();
+		$auth_labels = array(
+			'global'        => 'Global API Key',
+			'token'         => 'Token de usuario',
+			'account_token' => 'Token de cuenta',
+		);
+		$this->trace( $log, 'Auth: ' . ( $auth_labels[ $s['auth_type'] ] ?? $s['auth_type'] ) . ' | Email: ' . ( 'global' === $s['auth_type'] ? $s['cloudflare_email'] : '—' ) . ( 'account_token' === $s['auth_type'] ? ' | Account: ' . $this->mask( $s['cloudflare_account_id'] ?? '' ) : '' ) );
+		$this->trace( $log, 'Zone ID: ' . $this->mask( $s['cloudflare_zone_id'] ) );
+
+		$headers = $this->api_headers( $s );
+
+		if ( 'account_token' === $s['auth_type'] ) {
+			if ( empty( $s['cloudflare_account_id'] ) ) {
+				wp_send_json_error(
+					array(
+						'message' => 'Falta Account ID para token de cuenta.',
+						'log'     => $log,
+					)
+				);
+			}
+			$url = 'https://api.cloudflare.com/client/v4/accounts/' . rawurlencode( $s['cloudflare_account_id'] ) . '/tokens/verify';
+			$this->trace( $log, 'GET ' . $url );
+			$r = wp_remote_get(
+				$url,
+				array(
+					'headers' => $headers,
+					'timeout' => 20,
+				)
+			);
+			if ( is_wp_error( $r ) ) {
+				wp_send_json_error(
+					array(
+						'message' => 'Error verificando token de cuenta: ' . $r->get_error_message(),
+						'log'     => $log,
+					)
+				);
+			}
+			$code  = wp_remote_retrieve_response_code( $r );
+			$body  = wp_remote_retrieve_body( $r );
+			$json  = json_decode( $body, true );
+			$cf_ray = wp_remote_retrieve_header( $r, 'cf-ray' );
+			$this->trace( $log, 'HTTP ' . $code . ' verify=' . ( is_array( $json ) && ! empty( $json['success'] ) ? 'true' : 'false' ) . ' cf-ray=' . ( $cf_ray ? $cf_ray : '—' ) );
+			if ( 200 !== $code || empty( $json['success'] ) ) {
+				wp_send_json_error(
+					array(
+						'message' => 'Token de cuenta inválido o sin permisos (verify).',
+						'log'     => $log,
+						'http'    => $code,
+						'raw'     => substr( (string) $body, 0, 800 ),
+					)
+				);
+			}
+		} elseif ( 'token' === $s['auth_type'] ) {
+			$url = 'https://api.cloudflare.com/client/v4/user/tokens/verify';
+			$this->trace( $log, 'GET ' . $url );
+			$r = wp_remote_get(
+				$url,
+				array(
+					'headers' => $headers,
+					'timeout' => 20,
+				)
+			);
+			if ( is_wp_error( $r ) ) {
+				wp_send_json_error(
+					array(
+						'message' => 'Error verificando token: ' . $r->get_error_message(),
+						'log'     => $log,
+					)
+				);
+			}
+			$code  = wp_remote_retrieve_response_code( $r );
+			$body  = wp_remote_retrieve_body( $r );
+			$json  = json_decode( $body, true );
+			$cf_ray = wp_remote_retrieve_header( $r, 'cf-ray' );
+			$this->trace( $log, 'HTTP ' . $code . ' verify=' . ( is_array( $json ) && ! empty( $json['success'] ) ? 'true' : 'false' ) . ' cf-ray=' . ( $cf_ray ? $cf_ray : '—' ) );
+			if ( 200 !== $code || empty( $json['success'] ) ) {
+				wp_send_json_error(
+					array(
+						'message' => 'Token inválido o sin permisos (verify).',
+						'log'     => $log,
+						'http'    => $code,
+						'raw'     => substr( (string) $body, 0, 800 ),
+					)
+				);
+			}
+		} else {
+			$url = 'https://api.cloudflare.com/client/v4/user';
+			$this->trace( $log, 'GET ' . $url );
+			$r = wp_remote_get(
+				$url,
+				array(
+					'headers' => $headers,
+					'timeout' => 20,
+				)
+			);
+			if ( is_wp_error( $r ) ) {
+				wp_send_json_error(
+					array(
+						'message' => 'Error verificando usuario: ' . $r->get_error_message(),
+						'log'     => $log,
+					)
+				);
+			}
+			$code  = wp_remote_retrieve_response_code( $r );
+			$body  = wp_remote_retrieve_body( $r );
+			$json  = json_decode( $body, true );
+			$cf_ray = wp_remote_retrieve_header( $r, 'cf-ray' );
+			$this->trace( $log, 'HTTP ' . $code . ' user=' . ( is_array( $json ) && ! empty( $json['success'] ) ? 'true' : 'false' ) . ' cf-ray=' . ( $cf_ray ? $cf_ray : '—' ) );
+			if ( 200 !== $code || empty( $json['success'] ) ) {
+				wp_send_json_error(
+					array(
+						'message' => 'Autenticación fallida con Global API Key/Email.',
+						'log'     => $log,
+						'http'    => $code,
+						'raw'     => substr( (string) $body, 0, 800 ),
+					)
+				);
+			}
+		}
+
+		if ( ! empty( $s['cloudflare_zone_id'] ) ) {
+			$url = 'https://api.cloudflare.com/client/v4/zones/' . rawurlencode( $s['cloudflare_zone_id'] );
+			$this->trace( $log, 'GET ' . $url );
+			$r = wp_remote_get(
+				$url,
+				array(
+					'headers' => $headers,
+					'timeout' => 20,
+				)
+			);
+			if ( is_wp_error( $r ) ) {
+				wp_send_json_error(
+					array(
+						'message' => 'Error comprobando zona: ' . $r->get_error_message(),
+						'log'     => $log,
+					)
+				);
+			}
+			$code      = wp_remote_retrieve_response_code( $r );
+			$body      = wp_remote_retrieve_body( $r );
+			$json      = json_decode( $body, true );
+			$cf_ray     = wp_remote_retrieve_header( $r, 'cf-ray' );
+			$zone_name = is_array( $json ) && ! empty( $json['result']['name'] ) ? $json['result']['name'] : '?';
+			$this->trace( $log, 'HTTP ' . $code . ' zone=' . ( is_array( $json ) && ! empty( $json['success'] ) ? 'true' : 'false' ) . ' name=' . $zone_name . ' cf-ray=' . ( $cf_ray ? $cf_ray : '—' ) );
+			if ( 200 !== $code || empty( $json['success'] ) ) {
+				wp_send_json_error(
+					array(
+						'message' => 'No se pudo acceder a la zona (ID incorrecto o sin permisos).',
+						'log'     => $log,
+						'http'    => $code,
+						'raw'     => substr( (string) $body, 0, 800 ),
+					)
+				);
+			}
+			$site_domain = $this->get_site_domain();
+			if ( ! $this->domain_matches_zone( $site_domain, $zone_name ) ) {
+				wp_send_json_error(
+					array(
+						'message' => 'El Zone ID no corresponde con el dominio actual (' . $site_domain . ').',
+						'log'     => $log,
+					)
+				);
+			}
+		} else {
+			wp_send_json_error(
+				array(
+					'message' => 'Zone ID vacío.',
+					'log'     => $log,
+				)
+			);
+		}
+
+		$this->trace( $log, 'Obteniendo registros DNS (A, AAAA, CNAME)…' );
+		$records = $this->fetch_dns_records( array( 'A', 'AAAA', 'CNAME' ), $log );
+		$count   = count( $records );
+		$this->trace( $log, 'Total registros validos: ' . $count );
+
+		$sample = array_slice( $records, 0, 10 );
+		foreach ( $sample as $rr ) {
+			$this->trace(
+				$log,
+				sprintf(
+					' - %s %s (%s) proxied=%s ttl=%s id=%s',
+					$rr['type'],
+					$rr['name'],
+					$rr['content'],
+					( null === $rr['proxied'] ? '—' : ( $rr['proxied'] ? 'ON' : 'OFF' ) ),
+					$rr['ttl'],
+					$this->mask( $rr['id'] )
+				)
+			);
+		}
+		if ( $count > 10 ) {
+			$this->trace( $log, ' ... +' . ( $count - 10 ) . ' mas' );
+		}
+
+		if ( empty( $records ) ) {
+			wp_send_json_error(
+				array(
+					'message' => 'No se obtuvieron registros (permiso DNS:Read?).',
+					'log'     => $log,
+				)
+			);
+		}
+
+		$this->persist_dns_cache( $records );
+		$this->trace( $log, 'Cache actualizado y guardado.' );
+
+		$sel = $this->persist_selected_from_ajax();
+
+		$s2 = $this->get_settings();
+		ob_start();
+		$this->echo_dns_table( $s2['dns_records_cache'], $sel ? $sel : ( $s2['selected_records'] ?? array() ) );
+		$html = ob_get_clean();
+
+		$this->log_event(
+			'manual',
+			'Test de conexión ejecutado',
+			array(
+				'usuario'            => $this->current_user_label(),
+				'registros_en_cache' => count( $s2['dns_records_cache'] ?? array() ),
+				'seleccionados'      => count( $s2['selected_records'] ?? array() ),
+			)
+		);
+
+		wp_send_json_success(
+			array(
+				'html' => $html,
+				'log'  => $log,
+			)
+		);
+	}
+
+	/** AJAX handler: return current block status for the summary panel. */
+	public function ajax_get_status() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error(
+				array(
+					'message' => 'Permiso denegado',
+					'log'     => array(),
+				)
+			);
+		}
+		check_ajax_referer( 'cfbcolorvivo_nonce' );
+		// Acción explícita del usuario (botón "Actualizar IPs"): forzar resolución DNS fresca.
+		$calc = $this->compute_statuses_from_json( true );
+		wp_send_json_success(
+			array(
+				'general'     => $calc['general'],
+				'domain'      => $calc['domain'],
+				'ips'         => $calc['domain_ips'],
+				'last_update' => $calc['last_update'],
+			)
+		);
+	}
+
+	/** AJAX handler: run a manual football block check. */
+	public function ajax_manual_check() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error(
+				array(
+					'message' => 'Permiso denegado',
+					'log'     => array(),
+				)
+			);
+		}
+		check_ajax_referer( 'cfbcolorvivo_nonce' );
+		$log = array();
+		$this->trace( $log, 'Ejecucion manual: comprobando JSON de IPs y aplicando politica…' );
+		$this->persist_selected_from_ajax();
+		$this->check_football_and_manage_cloudflare();
+		$s = $this->get_settings();
+		$this->log_event(
+			'manual',
+			'Comprobación manual ejecutada',
+			array(
+				'usuario' => $this->current_user_label(),
+				'general' => $s['last_status_general'] ?? 'NO',
+				'dominio' => $s['last_status_domain'] ?? 'NO',
+			)
+		);
+		wp_send_json_success(
+			array(
+				'last'        => $s['last_check'],
+				'general'     => $s['last_status_general'],
+				'domain'      => $s['last_status_domain'],
+				'last_update' => $s['last_update'] ?? '',
+				'log'         => $log,
+			)
+		);
+	}
+
+	/**
+	 * Apply a proxy state to a set of DNS records, refreshing the cache before and after.
+	 *
+	 * Shared by the "Force Proxy ON/OFF" AJAX actions and the Abilities API, so both
+	 * follow exactly the same path against Cloudflare.
+	 *
+	 * @param array $ids     Cloudflare DNS record IDs to update.
+	 * @param bool  $proxied True for Proxied (CDN), false for DNS Only.
+	 * @param array $log     Trace log, appended by reference.
+	 * @return array {
+	 *     @type int   $ok      Records actually changed.
+	 *     @type int   $skipped Records already in the requested state.
+	 *     @type int   $failed  Records that could not be updated.
+	 *     @type array $lines   Human-readable report, one line per record.
+	 * }
+	 */
+	private function apply_proxy_to_records( array $ids, $proxied, array &$log ) {
+		$state = $proxied ? 'ON' : 'OFF';
+
+		$before = $this->fetch_dns_records( array( 'A', 'AAAA', 'CNAME' ), $log );
+		if ( ! empty( $before ) ) {
+			$this->persist_dns_cache( $before );
+		}
+
+		$ok      = 0;
+		$failed  = 0;
+		$skipped = 0;
+		$lines   = array();
+		foreach ( $ids as $rid ) {
+			$res = $this->update_record_proxy_status( $rid, $proxied, true );
+			if ( is_array( $res ) && ! empty( $res['success'] ) ) {
+				if ( ! empty( $res['skipped'] ) ) {
+					++$skipped;
+					$lines[] = 'SKIP: ' . ( $res['record']['name'] ?? $rid ) . ' (ya ' . $state . ')';
+				} else {
+					++$ok;
+					$lines[] = 'OK: ' . ( $res['record']['name'] ?? $rid ) . ' -> ' . $state;
+				}
+			} else {
+				++$failed;
+				$lines[] = 'ERR: ' . ( $res['record']['name'] ?? $rid ) . ' ' . ( is_array( $res ) && ! empty( $res['error'] ) ? $res['error'] : '' );
+			}
+		}
+
+		$after = $this->fetch_dns_records( array( 'A', 'AAAA', 'CNAME' ), $log );
+		if ( ! empty( $after ) ) {
+			$this->persist_dns_cache( $after );
+		}
+
+		return array(
+			'ok'      => $ok,
+			'skipped' => $skipped,
+			'failed'  => $failed,
+			'lines'   => $lines,
+		);
+	}
+
+	/** AJAX handler: force proxy OFF (DNS Only) on selected records. */
+	public function ajax_force_deactivate() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error(
+				array(
+					'message' => 'Permiso denegado',
+					'log'     => array(),
+				)
+			);
+		}
+		check_ajax_referer( 'cfbcolorvivo_nonce' );
+		$log = array();
+		$this->trace( $log, 'Forzar OFF: refrescando estado real desde Cloudflare…' );
+
+		$sel = $this->persist_selected_from_ajax();
+		if ( empty( $sel ) ) {
+			wp_send_json_error(
+				array(
+					'message' => 'No hay registros seleccionados.',
+					'log'     => $log,
+				)
+			);
+		}
+
+		$report = $this->apply_proxy_to_records( $sel, false, $log );
+		$ok     = $report['ok'];
+		$fail   = $report['failed'];
+		$lines  = $report['lines'];
+
+		$s2 = $this->get_settings();
+		ob_start();
+		$this->echo_dns_table( $s2['dns_records_cache'], $sel );
+		$html = ob_get_clean();
+		$msg  = "Proxy OFF en $ok registros" . ( $fail ? "; fallidos: $fail" : '' ) . '.';
+		$this->log_event(
+			'manual',
+			'Forzar Proxy OFF',
+			array(
+				'usuario'    => $this->current_user_label(),
+				'procesados' => count( $sel ),
+				'ok'         => $ok,
+				'errores'    => $fail,
+			)
+		);
+		wp_send_json_success(
+			array(
+				'message' => $msg,
+				'report'  => implode( "\n", $lines ),
+				'html'    => $html,
+				'log'     => array_merge( $log, $lines, array( $msg ) ),
+			)
+		);
+	}
+
+	/** AJAX handler: force proxy ON (CDN) on selected records. */
+	public function ajax_force_activate() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error(
+				array(
+					'message' => 'Permiso denegado',
+					'log'     => array(),
+				)
+			);
+		}
+		check_ajax_referer( 'cfbcolorvivo_nonce' );
+		$log = array();
+		$this->trace( $log, 'Forzar ON: refrescando estado real desde Cloudflare…' );
+
+		$sel = $this->persist_selected_from_ajax();
+		if ( empty( $sel ) ) {
+			wp_send_json_error(
+				array(
+					'message' => 'No hay registros seleccionados.',
+					'log'     => $log,
+				)
+			);
+		}
+
+		$report = $this->apply_proxy_to_records( $sel, true, $log );
+		$ok     = $report['ok'];
+		$fail   = $report['failed'];
+		$lines  = $report['lines'];
+
+		$s2 = $this->get_settings();
+		ob_start();
+		$this->echo_dns_table( $s2['dns_records_cache'], $sel );
+		$html = ob_get_clean();
+		$msg  = "Proxy ON en $ok registros" . ( $fail ? "; fallidos: $fail" : '' ) . '.';
+		$this->log_event(
+			'manual',
+			'Forzar Proxy ON',
+			array(
+				'usuario'    => $this->current_user_label(),
+				'procesados' => count( $sel ),
+				'ok'         => $ok,
+				'errores'    => $fail,
+			)
+		);
+		wp_send_json_success(
+			array(
+				'message' => $msg,
+				'report'  => implode( "\n", $lines ),
+				'html'    => $html,
+				'log'     => array_merge( $log, $lines, array( $msg ) ),
+			)
+		);
+	}
+
+	/** AJAX handler: return WP-Cron diagnostic information. */
+	public function ajax_cron_diagnostics() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error(
+				array(
+					'message' => 'Permiso denegado',
+					'log'     => array(),
+				)
+			);
+		}
+		check_ajax_referer( 'cfbcolorvivo_nonce' );
+		$s         = $this->get_settings();
+		$mins      = max( 5, min( 60, intval( $s['check_interval'] ) ) );
+		$next_ts    = wp_next_scheduled( $this->cron_hook );
+		$next      = $next_ts ? date_i18n( 'Y-m-d H:i:s', $next_ts ) : '—';
+		$now_ts     = time();
+		$cron_state = 'OK';
+		if ( $next_ts && $next_ts <= $now_ts - MINUTE_IN_SECONDS ) {
+			$cron_state = 'ATRASADO (WP-Cron no ha podido ejecutarse)';
+		}
+		$last_check_val    = $s['last_check'] ? $s['last_check'] : '—';
+		$general_val       = $s['last_status_general'] ? $s['last_status_general'] : '—';
+		$domain_val        = $s['last_status_domain'] ? $s['last_status_domain'] : '—';
+		$override_val      = ! empty( $s['force_proxy_off_override'] ) ? 'SI' : 'NO';
+		$last_update_val   = ! empty( $s['last_update'] ) ? $s['last_update'] : '—';
+		$last_sync_val     = ! empty( $s['dns_cache_last_sync'] ) ? $s['dns_cache_last_sync'] : '—';
+		$msg = "Cron hook: {$this->cron_hook}\nIntervalo: {$mins} min\nSiguiente ejecucion: {$next}\nEstado cron: {$cron_state}\nUltima comprobacion: " . $last_check_val . "\nGeneral (bloqueos IPs): " . $general_val . "\nDominio bloqueado: " . $domain_val . "\nOverride activo: " . $override_val . "\nUltima actualizacion (JSON de IPs): " . $last_update_val . "\nRegistros sincronizados: " . $last_sync_val;
+		wp_send_json_success( array( 'msg' => $msg ) );
+	}
+
+	/** AJAX handler: delete the cached local data.json to force a clean re-fetch. */
+	public function ajax_clear_data_cache() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => 'Permiso denegado' ) );
+		}
+		check_ajax_referer( 'cfbcolorvivo_nonce' );
+
+		$log        = array();
+		$local_path = $this->plugin_upload_dir . '/data.json';
+		$deleted    = false;
+		if ( file_exists( $local_path ) ) {
+			$wp_fs = $this->get_wp_filesystem();
+			if ( $wp_fs ) {
+				$deleted = (bool) $wp_fs->delete( $local_path );
+			} else {
+				$deleted = @unlink( $local_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink
+			}
+			$log[] = $deleted ? 'data.json local borrado.' : 'No se pudo borrar data.json local (permisos).';
+		} else {
+			$log[] = 'No existía data.json local.';
+		}
+
+		delete_transient( 'cfbcolorvivo_domain_ips_cache' );
+		delete_transient( 'cfbcolorvivo_feed_last_fetch' );
+		delete_transient( 'cfbcolorvivo_oppage_dns_throttle' );
+		$log[] = 'Transients de caché borrados.';
+
+		$this->log_event(
+			'manual',
+			'Cache local data.json borrada',
+			array(
+				'usuario'  => $this->current_user_label(),
+				'deleted'  => $deleted,
+			)
+		);
+
+		$diag = $this->get_feed_diagnostics();
+		ob_start();
+		$this->echo_feed_diagnostics( $diag );
+		$html = ob_get_clean();
+		wp_send_json_success(
+			array(
+				'message' => 'Caché borrada. La próxima comprobación descargará el JSON remoto limpio.',
+				'log'     => $log,
+				'diag'    => $diag,
+				'html'    => $html,
+			)
+		);
+	}
+
+	/** AJAX handler: return current feed diagnostics snapshot (for the UI panel). */
+	public function ajax_feed_diagnostics() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => 'Permiso denegado' ) );
+		}
+		check_ajax_referer( 'cfbcolorvivo_nonce' );
+		$diag = $this->get_feed_diagnostics();
+		ob_start();
+		$this->echo_feed_diagnostics( $diag );
+		$html = ob_get_clean();
+		wp_send_json_success(
+			array(
+				'diag' => $diag,
+				'html' => $html,
+			)
+		);
+	}
+}

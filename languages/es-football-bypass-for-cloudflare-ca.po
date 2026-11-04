@@ -3,7 +3,7 @@
 # This file is distributed under the GPL v2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: ES Football Bypass for Cloudflare 2.0.1\n"
+"Project-Id-Version: ES Football Bypass for Cloudflare 2.0.2\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/es-football-bypass-for-cloudflare\n"
 "POT-Creation-Date: 2026-04-18T08:31:42+00:00\n"
 "PO-Revision-Date: 2026-04-18 08:45+0000\n"
@@ -781,3 +781,9 @@ msgstr "Les credencials de Cloudflare no estan configurades."
 #, php-format
 msgid "The external cron token was not changed: it must have at least %d characters."
 msgstr "El token de cron extern no s'ha canviat: ha de tenir almenys %d caràcters."
+
+#. translators: %s: path of the other plugin copy, relative to the plugins folder.
+#: es-football-bypass.php:42
+#, php-format
+msgid "ES Football Bypass for Cloudflare: another copy of this plugin is already active in %s, so this copy is not running. Deactivate the other copy and this one will take over. If you delete the other copy from the Plugins screen, your plugin settings may be deleted too."
+msgstr "ES Football Bypass for Cloudflare: ja hi ha una altra còpia d'aquesta extensió activa a %s, per tant aquesta còpia no s'està executant. Desactiva l'altra còpia i aquesta en prendrà el relleu. Si esborres l'altra còpia des de la pantalla d'extensions, també es poden esborrar els ajustos de l'extensió."
