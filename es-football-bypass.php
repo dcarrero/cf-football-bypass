@@ -2705,6 +2705,18 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			}
 		}
 
+		if ( ! empty( $settings['selected_records'] ) ) {
+			// Los PUT no tocan la caché: la recargamos para que refleje el estado que acabamos de aplicar.
+			if ( $updated > 0 ) {
+				$after = $this->fetch_dns_records();
+				if ( ! empty( $after ) ) {
+					$this->persist_dns_cache( $after );
+				}
+			}
+			// $settings se leyó antes de refrescar la caché: guardarlo tal cual la sobrescribiría con datos viejos.
+			$settings = $this->get_settings();
+		}
+
 		$settings['last_check']          = $now_mysql;
 		$settings['last_status_general'] = ( 'SÍ' === $general ) ? 'SI' : 'NO';
 		$settings['last_status_domain']  = ( 'SÍ' === $domain ) ? 'SI' : 'NO';
