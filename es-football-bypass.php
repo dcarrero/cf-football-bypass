@@ -2968,6 +2968,27 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		}
 		return null;
 	}
+	/**
+	 * Read lastUpdate from a raw feed body without building the whole array.
+	 *
+	 * The feed decodes to about 50 MB, so it should not be decoded just to compare a
+	 * timestamp. lastUpdate is the first key of the feed; if that ever changes this
+	 * falls back to a full decode, released before returning.
+	 *
+	 * @param string $body Raw JSON body.
+	 * @return string|null lastUpdate value, or null if the body has none.
+	 */
+	private function read_feed_last_update( $body ) {
+		if ( ! is_string( $body ) || '' === $body ) {
+			return null;
+		}
+		if ( preg_match( '/\A\s*\{\s*"lastUpdate"\s*:\s*"([^"\\\\]+)"/', substr( $body, 0, 256 ), $matches ) ) {
+			return $matches[1];
+		}
+		$json = json_decode( $body, true );
+		return ( is_array( $json ) && ! empty( $json['lastUpdate'] ) && is_string( $json['lastUpdate'] ) ) ? $json['lastUpdate'] : null;
+	}
+
 	/** Fetch and cache the football block status JSON from remote or local. */
 	private function fetch_status_json() {
 		$uploads_dir = $this->plugin_upload_dir;
@@ -2979,15 +3000,13 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		if ( $wp_fs && $wp_fs->exists( $local_path ) && $wp_fs->is_readable( $local_path ) && $wp_fs->size( $local_path ) > 0 ) {
 			$local_body = $wp_fs->get_contents( $local_path );
 			if ( false !== $local_body ) {
-				$json_local = json_decode( $local_body, true );
-				if ( is_array( $json_local ) && ! empty( $json_local['lastUpdate'] ) && is_string( $json_local['lastUpdate'] ) ) {
-					$last_local = $json_local['lastUpdate'];
-				}
+				$last_local = $this->read_feed_last_update( $local_body );
 			}
 		}
 
 		$remote_ok   = false;
 		$remote_body = null;
+		$remote_json = null;
 		$last_remote = null;
 		$remote_code = 0;
 		$remote_err  = '';
@@ -3018,11 +3037,11 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 				$remote_code = (int) wp_remote_retrieve_response_code( $resp );
 				if ( 200 === $remote_code ) {
 					$remote_body = wp_remote_retrieve_body( $resp );
-					$tmp         = json_decode( $remote_body, true );
-					if ( is_array( $tmp ) ) {
+					$remote_json = json_decode( $remote_body, true );
+					if ( is_array( $remote_json ) ) {
 						$remote_ok = true;
-						if ( ! empty( $tmp['lastUpdate'] ) && is_string( $tmp['lastUpdate'] ) ) {
-							$last_remote = $tmp['lastUpdate'];
+						if ( ! empty( $remote_json['lastUpdate'] ) && is_string( $remote_json['lastUpdate'] ) ) {
+							$last_remote = $remote_json['lastUpdate'];
 						}
 					} else {
 						$remote_err = 'respuesta no es JSON válido';
@@ -3085,7 +3104,24 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			return null;
 		}
 
-		$json = json_decode( $body, true );
+		// Reutilizamos el remoto ya decodificado si es el que vamos a usar; si no, se libera
+		// antes de decodificar el local para no tener nunca dos copias en memoria (issue #8).
+		if ( is_array( $remote_json ) && $body === $remote_body ) {
+			$json = $remote_json;
+		} else {
+			$remote_json = null;
+			$json        = json_decode( $body, true );
+			// Copia local corrupta con cabecera válida (p. ej. escritura truncada): se repara con el remoto.
+			if ( ! is_array( $json ) && $remote_ok ) {
+				$json = json_decode( $remote_body, true );
+				if ( $wp_fs && is_array( $json ) ) {
+					$wp_fs->put_contents( $local_path, $remote_body, FS_CHMOD_FILE );
+					$this->log( '[CFB] Local data.json corrupto; restaurado desde el remoto.' );
+				}
+			}
+		}
+		unset( $remote_json, $remote_body, $local_body, $body );
+
 		if ( ! is_array( $json ) ) {
 			$this->log( '[CFB] JSON decode failed' );
 			return null; }
@@ -3113,7 +3149,9 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			$this->log( '[CFB] Estructura de data.json inesperada: no hay lastUpdate ni claves de IPs conocidas (ips/ip/data/results).' );
 		}
 
-		$extracted     = $this->extract_ip_block_map( $json );
+		$extracted = $this->extract_ip_block_map( $json );
+		unset( $json );
+
 		$map           = $extracted['ip_map'] ?? array();
 		$isps_blocked  = $extracted['isps_blocked'] ?? array();
 		$blocked_count = 0;
@@ -3394,10 +3432,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		if ( $local_exists && $local_size > 0 ) {
 			$contents = file_get_contents( $local_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 			if ( is_string( $contents ) ) {
-				$decoded = json_decode( $contents, true );
-				if ( is_array( $decoded ) && ! empty( $decoded['lastUpdate'] ) && is_string( $decoded['lastUpdate'] ) ) {
-					$local_last_update = $decoded['lastUpdate'];
-				}
+				$local_last_update = (string) $this->read_feed_last_update( $contents );
 			}
 		}
 
@@ -3677,6 +3712,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 				'category'            => 'es-football-bypass',
 				'input_schema'        => array(
 					'type'       => 'object',
+					'default'    => array(),
 					'properties' => array(
 						'type'         => array(
 							'type'        => 'string',

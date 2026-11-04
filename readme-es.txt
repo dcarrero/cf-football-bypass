@@ -233,6 +233,7 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 * Todas las abilities exigen la capacidad `manage_options`, declaran JSON Schema de entrada y salida, y llevan anotaciones readonly/destructive/idempotent para que los agentes sepan qué es seguro invocar
 * NUEVO: Filtros `cfbcolorvivo_site_domain` y `cfbcolorvivo_is_local_domain`, para que una copia de staging, una instalación tras proxy inverso o una previsualización en WordPress Playground puedan desbloquear la página de Operación y comprobarse contra el dominio de producción
 * CORRECCIÓN: El aviso de "Cambios sin guardar" se veía nada más cargar la página, sin haber tocado nada: la hoja de estilos anulaba el atributo `hidden`
+* CORRECCIÓN: Agotamiento de memoria de PHP al procesar el feed de estado. El feed (unos 5 MB, 50 MB una vez decodificado) se decodificaba hasta tres veces seguidas y todas las copias seguían en memoria hasta el final; una cuarta decodificación en la página de Operación solo leía una fecha. Ahora se decodifica una vez y el pico de memoria baja a un tercio aproximadamente. Gracias a joserikko por el aviso
 * COMPATIBILIDAD: La versión mínima de WordPress sube a 6.9, que es donde llegó la Abilities API. Los sitios con versiones anteriores se quedan en la 1.9.8, que ya incluye la corrección de la selección de registros DNS
 * INTERNO: La lógica de "Forzar Proxy ON/OFF" pasa a ser común entre las acciones AJAX del escritorio y las abilities, así ambas siguen exactamente el mismo camino contra Cloudflare
 
