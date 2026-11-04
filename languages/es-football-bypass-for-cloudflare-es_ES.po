@@ -3,7 +3,7 @@
 # This file is distributed under the GPL v2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: ES Football Bypass for Cloudflare 1.9.6\n"
+"Project-Id-Version: ES Football Bypass for Cloudflare 2.0.1\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/es-football-"
 "bypass-for-cloudflare\n"
 "POT-Creation-Date: 2026-04-18T08:31:42+00:00\n"
@@ -682,3 +682,105 @@ msgstr ""
 #~ msgstr ""
 #~ "Esta acción elimina credenciales, registros seleccionados, caché DNS y "
 #~ "logs. Tendrás que configurar el plugin de nuevo."
+
+#: es-football-bypass.php
+msgid "ES Football Bypass"
+msgstr "ES Football Bypass"
+
+#: es-football-bypass.php
+msgid "Check La Liga IP block status and control the Cloudflare proxy on the managed DNS records."
+msgstr "Consulta el estado de los bloqueos de IP de La Liga y controla el proxy de Cloudflare en los registros DNS gestionados."
+
+#: es-football-bypass.php
+msgid "Cloudflare DNS record ID."
+msgstr "ID del registro DNS en Cloudflare."
+
+#: es-football-bypass.php
+msgid "True when the record goes through the Cloudflare CDN, null when the record cannot be proxied."
+msgstr "True si el registro pasa por la CDN de Cloudflare; null si el registro no admite proxy."
+
+#: es-football-bypass.php
+msgid "True when the plugin is allowed to switch this record."
+msgstr "True si el plugin puede cambiar este registro."
+
+#: es-football-bypass.php
+msgid "Get bypass status"
+msgstr "Consultar el estado del bypass"
+
+#: es-football-bypass.php
+msgid "Returns whether La Liga IP blocks are active right now, whether this site is among the blocked IPs, and whether the Cloudflare bypass is currently engaged."
+msgstr "Indica si ahora mismo hay bloqueos de IP de La Liga activos, si este sitio está entre las IP bloqueadas y si el bypass de Cloudflare está activo."
+
+#: es-football-bypass.php
+msgid "Blocks are active on some IPs right now."
+msgstr "Ahora mismo hay bloqueos activos en algunas IP."
+
+#: es-football-bypass.php
+msgid "This site resolves to at least one blocked IP."
+msgstr "Este sitio resuelve al menos a una IP bloqueada."
+
+#: es-football-bypass.php
+msgid "The automatic policy has the bypass engaged. Forcing the proxy by hand does not change this value."
+msgstr "La política automática tiene el bypass activo. Forzar el proxy a mano no cambia este valor."
+
+#: es-football-bypass.php
+msgid "List DNS records"
+msgstr "Listar registros DNS"
+
+#: es-football-bypass.php
+msgid "Lists the cached Cloudflare DNS records with their current proxy state and whether the plugin manages each one. Optionally filtered by record type."
+msgstr "Lista los registros DNS de Cloudflare en caché con su estado de proxy actual y si el plugin gestiona cada uno. Se puede filtrar por tipo de registro."
+
+#: es-football-bypass.php
+msgid "Return only records of this type."
+msgstr "Devolver solo los registros de este tipo."
+
+#: es-football-bypass.php
+msgid "Return only the records the plugin manages."
+msgstr "Devolver solo los registros que gestiona el plugin."
+
+#: es-football-bypass.php
+msgid "Set managed DNS records"
+msgstr "Definir los registros DNS gestionados"
+
+#: es-football-bypass.php
+msgid "Replaces the list of DNS records the plugin is allowed to switch. Record IDs that do not exist in the Cloudflare zone are ignored. Pass an empty array to stop the plugin from touching DNS at all."
+msgstr "Sustituye la lista de registros DNS que el plugin puede cambiar. Los ID que no existen en la zona de Cloudflare se ignoran. Pasa un array vacío para que el plugin deje de tocar el DNS."
+
+#: es-football-bypass.php
+msgid "Cloudflare DNS record IDs to manage."
+msgstr "ID de los registros DNS de Cloudflare que se van a gestionar."
+
+#: es-football-bypass.php
+msgid "Run block check now"
+msgstr "Comprobar bloqueos ahora"
+
+#: es-football-bypass.php
+msgid "Runs the same check the cron job runs: fetches the hayahora.futbol feed and applies the bypass policy, which may switch the managed records between Proxied and DNS Only."
+msgstr "Ejecuta la misma comprobación que el cron: descarga el feed de hayahora.futbol y aplica la política de bypass, que puede cambiar los registros gestionados entre Proxied y DNS Only."
+
+#: es-football-bypass.php
+msgid "Force proxy on or off"
+msgstr "Forzar el proxy ON u OFF"
+
+#: es-football-bypass.php
+msgid "Forces the managed DNS records to Proxied (CDN) or DNS Only, exactly like the manual buttons on the Operation page. Changes live DNS at Cloudflare. The next automatic check applies the policy again."
+msgstr "Fuerza los registros DNS gestionados a Proxied (CDN) o DNS Only, igual que los botones manuales de la página de Operación. Cambia el DNS real en Cloudflare. La siguiente comprobación automática vuelve a aplicar la política."
+
+#: es-football-bypass.php
+msgid "\"on\" restores Proxied (CDN); \"off\" switches to DNS Only."
+msgstr "\"on\" restaura Proxied (CDN); \"off\" cambia a DNS Only."
+
+#: es-football-bypass.php
+msgid "No DNS records are managed by the plugin. Set them first with the set-managed-records ability."
+msgstr "El plugin no gestiona ningún registro DNS. Defínelos primero con la ability set-managed-records."
+
+#: es-football-bypass.php
+msgid "Cloudflare credentials are not configured."
+msgstr "Las credenciales de Cloudflare no están configuradas."
+
+#. translators: %d is the minimum number of characters.
+#: es-football-bypass.php
+#, php-format
+msgid "The external cron token was not changed: it must have at least %d characters."
+msgstr "El token de cron externo no se ha cambiado: debe tener al menos %d caracteres."

@@ -4,7 +4,7 @@ Tags: cloudflare, dns, futbol, bypass, bloqueo-ip
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.0.0
+Stable tag: 2.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -205,6 +205,8 @@ Ejecuta la misma comprobación que el cron: descarga el feed de hayahora.futbol 
 = es-football-bypass/set-proxy =
 Fuerza los registros gestionados a Proxied (CDN) o DNS Only. Entrada: `mode` (`on` u `off`). Va anotada como destructiva, porque cambia el DNS real en Cloudflare. Devuelve error si no hay registros gestionados o faltan las credenciales de Cloudflare.
 
+Forzar el proxy con `set-proxy` o con los botones manuales es una acción puntual: no cambia `bypass_active`, y la siguiente comprobación vuelve a aplicar la política automática. Si hay bloqueos, un Proxy ON forzado vuelve a DNS Only; si no los hay, un Proxy OFF forzado vuelve a activarse.
+
 == Logs and Auditing ==
 
 = ¿Dónde puedo ver el historial de acciones? =
@@ -223,6 +225,13 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 3. Página "¿Hay fútbol ahora?": respuesta rápida de sí o no sobre si hay bloqueos de IPs de La Liga activos, con la hora de la última actualización del feed y los ISPs afectados.
 
 == Changelog ==
+
+= 2.0.1 =
+* REFUERZO: El feed de estado se descarga con `wp_safe_remote_get()`, de modo que se rechazan las direcciones internas, y su tamaño se limita a 20 MB (filtro `cfbcolorvivo_feed_max_bytes`). Una respuesta mayor se descarta y se sigue usando la copia local
+* REFUERZO: Un token nuevo de cron externo puesto a mano debe tener al menos 16 caracteres. Los tokens ya guardados siguen funcionando
+* I18N: Abilities traducidas al español, catalán, euskera, francés y gallego
+* DOCUMENTACIÓN: Forzar el proxy a mano no cambia `bypass_active`, y la siguiente comprobación vuelve a aplicar la política
+* INTERNO: Acciones de GitHub fijadas a commits exactos
 
 = 2.0.0 =
 * NUEVO: Soporte de la Abilities API (WordPress 6.9+). El plugin registra cinco abilities en la categoría "ES Football Bypass", de modo que la REST API, los servidores MCP y los agentes de IA pueden operar el bypass sin pasar por el escritorio: `get-status`, `list-dns-records`, `set-managed-records`, `run-check` y `set-proxy`
@@ -381,6 +390,9 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 * Sistema de cron integrado
 
 == Upgrade Notice ==
+
+= 2.0.1 =
+Refuerzo de seguridad en la descarga del feed y el token de cron externo, además de las abilities traducidas. No hace falta cambiar la configuración.
 
 = 2.0.0 =
 Añade soporte de la Abilities API (WordPress 6.9+): cinco abilities permiten a la REST API, servidores MCP y agentes de IA consultar el estado de bloqueos y controlar el proxy de Cloudflare. La versión mínima de WordPress pasa a ser 6.9.
