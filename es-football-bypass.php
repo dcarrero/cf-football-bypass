@@ -3049,7 +3049,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			&& ( time() - (int) $last_fetch['time'] ) < $fetch_throttle );
 
 		if ( ! $skip_remote ) {
-			$url  = apply_filters( 'cfbcolorvivo_remote_data_json_url', 'https://hayahora.futbol/estado/data.json' );
+			$url = apply_filters( 'cfbcolorvivo_remote_data_json_url', 'https://hayahora.futbol/estado/data.json' );
 			/**
 			 * Filters the largest feed size accepted, in bytes.
 			 *
