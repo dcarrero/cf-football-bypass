@@ -236,6 +236,7 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 * CORRECCIÓN: El aviso de "Cambios sin guardar" se veía nada más cargar la página, sin haber tocado nada: la hoja de estilos anulaba el atributo `hidden`
 * CORRECCIÓN: Agotamiento de memoria de PHP al procesar el feed de estado. El feed (unos 5 MB, 50 MB una vez decodificado) se decodificaba hasta tres veces seguidas y todas las copias seguían en memoria hasta el final; una cuarta decodificación en la página de Operación solo leía una fecha. Ahora se decodifica una vez y el pico de memoria baja a un tercio aproximadamente. Gracias a joserikko por el aviso
 * CORRECCIÓN: Tras una comprobación automática, la caché de registros DNS conservaba el estado del proxy anterior al cambio, de modo que la página de Operación y `list-dns-records` podían mostrar lo contrario de lo que había en Cloudflare hasta el siguiente refresco
+* CORRECCIÓN: Al desinstalar se borra por completo la carpeta de logs; quedaba un fichero `.htaccess` oculto
 * COMPATIBILIDAD: La versión mínima de WordPress sube a 6.9, que es donde llegó la Abilities API. Los sitios con versiones anteriores se quedan en la 1.9.8, que ya incluye la corrección de la selección de registros DNS
 * INTERNO: La lógica de "Forzar Proxy ON/OFF" pasa a ser común entre las acciones AJAX del escritorio y las abilities, así ambas siguen exactamente el mismo camino contra Cloudflare
 
