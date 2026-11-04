@@ -3991,8 +3991,8 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		);
 
 		return array(
-			'blocks_active'  => ( 'SÍ' === ( $s['last_status_general'] ?? 'NO' ) ),
-			'domain_blocked' => ( 'SÍ' === ( $s['last_status_domain'] ?? 'NO' ) ),
+			'blocks_active'  => ( 'SI' === ( $s['last_status_general'] ?? 'NO' ) ),
+			'domain_blocked' => ( 'SI' === ( $s['last_status_domain'] ?? 'NO' ) ),
 			'bypass_active'  => ! empty( $s['bypass_active'] ),
 			'last_check'     => (string) ( $s['last_check'] ?? '' ),
 		);
