@@ -436,8 +436,9 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		}
 		$wp_fs    = $this->get_wp_filesystem();
 		$htaccess = $dir . '/.htaccess';
-		if ( $wp_fs && ! $wp_fs->exists( $htaccess ) ) {
-			$htaccess_content = "# Deny access to log files\n<FilesMatch \"\\.(log|txt)$\">\n    Order Allow,Deny\n    Deny from all\n</FilesMatch>\n\n# Block directory listing\nOptions -Indexes\n";
+		// Apache 2.4 usa Require; Order/Deny solo existe en 2.2 o con mod_access_compat. Se reescribe el .htaccess de versiones anteriores, que solo traía la sintaxis de 2.2.
+		if ( $wp_fs && ( ! $wp_fs->exists( $htaccess ) || false === strpos( (string) $wp_fs->get_contents( $htaccess ), 'mod_authz_core' ) ) ) {
+			$htaccess_content = "# Deny access to log files\n<FilesMatch \"\\.(log|txt)$\">\n    <IfModule mod_authz_core.c>\n        Require all denied\n    </IfModule>\n    <IfModule !mod_authz_core.c>\n        Order Allow,Deny\n        Deny from all\n    </IfModule>\n</FilesMatch>\n\n# Block directory listing\nOptions -Indexes\n";
 			$wp_fs->put_contents( $htaccess, $htaccess_content, FS_CHMOD_FILE );
 		}
 		$index = $dir . '/index.php';
@@ -961,7 +962,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		}
 
 		// Registrar script handle para asociar inline scripts.
-		wp_register_script( 'cfbcolorvivo-admin', false, array(), '2.0.2', true );
+		wp_register_script( 'cfbcolorvivo-admin', false, array(), '2.0.3', true );
 		wp_enqueue_script( 'cfbcolorvivo-admin' );
 
 		// Pasar datos al JavaScript.
@@ -976,7 +977,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		);
 
 		// Estilos de la interfaz de administración.
-		wp_register_style( 'cfbcolorvivo-admin', false, array(), '2.0.2' );
+		wp_register_style( 'cfbcolorvivo-admin', false, array(), '2.0.3' );
 		wp_enqueue_style( 'cfbcolorvivo-admin' );
 		wp_add_inline_style( 'cfbcolorvivo-admin', $this->get_admin_css() );
 
@@ -1883,7 +1884,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 			home_url( '/wp-cron.php' )
 		);
 		echo '<input type="text" name="' . esc_attr( $this->option_name ) . '[cron_secret]" style="width:320px" id="cfbcolorvivo-cron-secret" value="' . esc_attr( $secret ) . '" autocomplete="off" />';
-		echo '<p class="description">' . esc_html__( 'Optional. Use a real server cron when WP-Cron is unreliable (low-traffic sites, hosts that disable it). Leave empty to disable the external endpoint.', 'es-football-bypass-for-cloudflare' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'Optional. Use a real server cron when WP-Cron is unreliable (low-traffic sites, hosts that disable it). The endpoint is always available, but it only runs a request that carries this token.', 'es-football-bypass-for-cloudflare' ) . '</p>';
 
 		if ( '' !== $secret ) {
 			echo '<p class="description" style="margin-top:10px"><strong>' . esc_html__( 'URL to request:', 'es-football-bypass-for-cloudflare' ) . '</strong></p>';
@@ -3064,7 +3065,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 				array(
 					'timeout'             => 25,
 					'redirection'         => 5,
-					'user-agent'          => 'ESFB/2.0.2; ' . home_url( '/' ),
+					'user-agent'          => 'ESFB/2.0.3; ' . home_url( '/' ),
 					'limit_response_size' => $max_bytes,
 				)
 			);
@@ -3603,7 +3604,7 @@ final class Cfbcolorvivo_Cloudflare_Football_Bypass {
 		$site    = get_bloginfo( 'name' );
 		$home    = home_url( '/' );
 		$mgr_url = admin_url( 'admin.php?page=cfbcolorvivo-main' );
-		$version = '2.0.2';
+		$version = '2.0.3';
 
 		if ( $now_active ) {
 			/* translators: %s is the site name. */

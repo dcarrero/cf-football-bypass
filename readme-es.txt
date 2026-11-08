@@ -4,7 +4,7 @@ Tags: cloudflare, dns, futbol, bypass, bloqueo-ip
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.0.2
+Stable tag: 2.0.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: es-football-bypass-for-cloudflare
@@ -75,7 +75,7 @@ Herramientas adicionales
    - Ve al escritorio de WordPress > Plugins > ES Football Bypass for Cloudflare > Activar
 
 2. Configuración de Cloudflare
-   - Ve a Ajustes > ES Football Bypass for Cloudflare
+   - Ve a ES Football Bypass > Configuración
    - Selecciona el tipo de autenticación (Global API Key o API Token)
    - Introduce tus credenciales de Cloudflare
    - Añade el Zone ID de tu dominio
@@ -113,6 +113,7 @@ El plugin consulta periódicamente el endpoint https://hayahora.futbol/estado/da
 - URL: https://hayahora.futbol/
 - Sobre el servicio y privacidad: https://hayahora.futbol/#sobre-los-bloqueos
 - Términos de uso: el servicio es gratuito, de código abierto, y no recopila datos personales de los usuarios del plugin ni de sus visitantes.
+- Confianza: el plugin actúa según lo que publica este feed. Si el feed marcara bloqueos que no existen, los registros seleccionados pasarían a DNS Only y la IP de tu servidor quedaría visible en el DNS mientras dure el bypass. El plugin lo limita con HTTPS, el número mínimo de ISP afectados, el umbral de obsolescencia y el cooldown, y siempre puedes volver a activar el proxy a mano.
 
 = API de Cloudflare =
 El plugin utiliza la API oficial de Cloudflare (https://api.cloudflare.com/client/v4/) para leer los registros DNS y alternar el estado del proxy (Proxied/DNS Only) en los registros seleccionados. Requiere las credenciales de API que tú proporcionas en los ajustes del plugin. Las credenciales se almacenan en la base de datos de WordPress y se envían vía cabeceras HTTPS a Cloudflare.
@@ -165,11 +166,13 @@ Consulta la sección "Cron y Automatización" para más detalles sobre wp_cron, 
 El plugin utiliza el cron interno de WordPress (wp_cron), que se ejecuta cuando hay visitas en el sitio web. Esto suele ser suficiente para la mayoría de sitios.
 
 = ¿Y si mi sitio tiene poco tráfico y el cron no se ejecuta con regularidad? =
-Ve a Ajustes > ES Football Bypass for Cloudflare y copia el token de la sección "Cron externo". Con ese token puedes configurar un cron real de servidor:
+Ve a ES Football Bypass > Configuración y copia el token de la sección "Cron externo". Con ese token puedes configurar un cron real de servidor:
 
 */15 * * * * curl -s "https://tudominio.com/wp-cron.php?cfbcolorvivo_cron=1&token=TU_TOKEN_AQUI" > /dev/null 2>&1
 
-Puedes regenerar el token borrando el campo y guardando los ajustes (se creará uno nuevo). Este endpoint solo ejecuta la comprobación del plugin, sin depender de las visitas.
+Puedes regenerar el token borrando el campo y guardando los ajustes (se creará uno nuevo). Este endpoint solo ejecuta la comprobación del plugin, sin depender de las visitas. Está siempre disponible y solo atiende las peticiones que llevan el token, así que no se puede apagar: si no lo usas, basta con no compartir la URL.
+
+El token va en la URL, así que puede quedar en los logs de acceso del servidor web, de un proxy o de Cloudflare. Quien lo tenga solo puede lanzar la misma comprobación que hace el cron; no puede cambiar ajustes ni elegir qué registros se conmutan. Si crees que se ha filtrado, regenéralo y actualiza tu crontab.
 
 = ¿Qué es el "Intervalo tras desactivar Cloudflare"? =
 Es el tiempo de espera (por defecto 60 minutos) que el plugin respeta antes de comprobar si Cloudflare se puede reactivar tras detectar un bloqueo. Durante este periodo, el proxy se mantiene en modo "DNS Only" aunque el JSON deje de marcar el dominio, evitando ciclos rápidos de activación/desactivación.
@@ -213,7 +216,7 @@ Forzar el proxy con `set-proxy` o con los botones manuales es una acción puntua
 En el menú ES Football Bypass for Cloudflare > Logs. Muestra las últimas ejecuciones automáticas (cron interno o externo) y las acciones manuales con fecha, detalle y usuario.
 
 = ¿Puedo desactivar el registro de logs? =
-Sí. En Ajustes > ES Football Bypass for Cloudflare puedes desactivar el registro o ajustar los días de retención (mínimo 1). Los logs se guardan en el directorio uploads, en `es-football-bypass-for-cloudflare/logs/`, protegidos con .htaccess.
+Sí. En ES Football Bypass > Configuración puedes desactivar el registro o ajustar los días de retención (mínimo 1). Los logs se guardan en el directorio uploads, en `es-football-bypass-for-cloudflare/logs/`, protegidos con .htaccess.
 
 = ¿Cómo verifico que el cron funciona correctamente? =
 Puedes comprobar si está programado en Herramientas > Salud del sitio > Información > Eventos programados, buscando el evento 'cfbcolorvivo_check_football_status'. También puedes revisar los logs de errores de WordPress, donde el plugin registra todas sus acciones.
@@ -225,6 +228,12 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 3. Página "¿Hay fútbol ahora?": respuesta rápida de sí o no sobre si hay bloqueos de IPs de La Liga activos, con la hora de la última actualización del feed y los ISPs afectados.
 
 == Changelog ==
+
+= 2.0.3 =
+* FIX: El ajuste de cron externo decía que dejar el token vacío desactivaba el endpoint, pero un campo vacío genera un token nuevo. El texto explica ahora que el endpoint está siempre disponible y solo atiende peticiones con el token
+* REFUERZO: El `.htaccess` que protege la carpeta de logs usa ahora la sintaxis de Apache 2.4 (`Require all denied`) y mantiene la de Apache 2.2 como alternativa. El fichero que dejaron las versiones anteriores se reescribe solo
+* DOCS: El readme explica que el token del cron puede quedar en los logs de acceso y cómo limita el plugin la confianza en el feed de hayahora.futbol
+* DOCS: Rutas de menú actualizadas al menú propio del plugin
 
 = 2.0.2 =
 * FIX: Activar el plugin ya no provoca un error fatal cuando hay otra copia activa en una carpeta distinta, como una instalación antigua desde GitHub. La segunda copia se detiene y muestra un aviso para desactivar la otra, y después toma el relevo
@@ -394,6 +403,9 @@ Puedes comprobar si está programado en Herramientas > Salud del sitio > Informa
 * Sistema de cron integrado
 
 == Upgrade Notice ==
+
+= 2.0.3 =
+Aclara cómo funciona el endpoint de cron externo y actualiza la protección de la carpeta de logs para Apache 2.4. No hace falta cambiar la configuración.
 
 = 2.0.2 =
 Corrige el error fatal al activar cuando hay otra copia del plugin activa en una carpeta distinta. No hace falta cambiar la configuración.
