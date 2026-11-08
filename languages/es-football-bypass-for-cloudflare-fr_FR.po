@@ -3,7 +3,7 @@
 # This file is distributed under the GPL v2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: ES Football Bypass for Cloudflare 2.0.2\n"
+"Project-Id-Version: ES Football Bypass for Cloudflare 2.0.3\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/es-football-bypass-for-cloudflare\n"
 "POT-Creation-Date: 2026-04-18T08:31:42+00:00\n"
 "PO-Revision-Date: 2026-04-18 08:45+0000\n"
@@ -429,13 +429,8 @@ msgid "Number of days to keep logs (minimum 1)."
 msgstr "Nombre de jours de conservation des logs (minimum 1)."
 
 #: es-football-bypass.php:1675
-msgid ""
-"Optional. Use a real server cron when WP-Cron is unreliable (low-traffic "
-"sites, hosts that disable it). Leave empty to disable the external endpoint."
-msgstr ""
-"Facultatif. Utilisez un cron réel du serveur lorsque WP-Cron n'est pas "
-"fiable (sites à faible trafic, hébergeurs qui le désactivent). Laissez vide "
-"pour désactiver l'endpoint externe."
+msgid "Optional. Use a real server cron when WP-Cron is unreliable (low-traffic sites, hosts that disable it). The endpoint is always available, but it only runs a request that carries this token."
+msgstr "Facultatif. Utilisez un cron réel du serveur lorsque WP-Cron n'est pas fiable (sites à faible trafic, hébergeurs qui le désactivent). L'endpoint est toujours disponible, mais il ne traite que les requêtes qui portent ce jeton."
 
 #: es-football-bypass.php:1678
 msgid "URL to request:"
